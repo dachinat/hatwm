@@ -1,0 +1,9 @@
+#!/bin/sh
+
+HATWM_DIR=/usr/bin
+
+export XDG_CURRENT_DESKTOP=HatWM
+export XDG_SESSION_DESKTOP=HatWM
+export XDG_SESSION_TYPE=wayland
+
+exec "${HATWM_DIR}/hatwm"

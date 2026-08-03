@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=HatWM
+Comment=HatWM Window Manager
+Exec=hatwm-session
+Type=Application
+DesktopNames=HatWM

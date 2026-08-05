@@ -19,6 +19,14 @@ This is a clean-room core focused on predictable ownership and a small stable fe
 - an IPC socket used by `hatwmctl`, panels, pagers, and scripts
 - an in-process ScreenCast and appearance-settings portal backend
 
+## Screenshot
+
+| Desktop | Calendar popup |
+| :---: | :---: |
+| [![HatWM desktop with a terminal](docs/screenshots/hatwm-desktop.png)](docs/screenshots/hatwm-desktop.png) | [![HatWM desktop with the calendar open](docs/screenshots/hatwm-calendar.png)](docs/screenshots/hatwm-calendar.png) |
+
+Click the preview to view the full-resolution screenshot.
+
 ## Project layout
 
 ```text

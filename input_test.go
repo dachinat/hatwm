@@ -68,3 +68,44 @@ func TestResizeCursorNameMatchesEdges(t *testing.T) {
 		}
 	}
 }
+
+func TestResizeFloatingGeometryRoundsPointerDelta(t *testing.T) {
+	original := Geometry{X: 100, Y: 100, Width: 400, Height: 300}
+	area := usableBox{width: 1200, height: 800}
+	got := resizeFloatingGeometry(original, 10.6, 20.4,
+		wlroots.EdgeRight|wlroots.EdgeBottom, area, 0, 0, 0, 0, 0)
+	if got.Width != 411 || got.Height != 320 {
+		t.Fatalf("rounded resize = %+v, want 411x320", got)
+	}
+}
+
+func TestResizeFloatingGeometryNegativeBorderBehavesAsZero(t *testing.T) {
+	original := Geometry{X: 100, Y: 100, Width: 400, Height: 300}
+	area := usableBox{width: 500, height: 400}
+	negative := resizeFloatingGeometry(original, 100, 100,
+		wlroots.EdgeRight|wlroots.EdgeBottom, area, -5, 0, 0, 0, 0)
+	zero := resizeFloatingGeometry(original, 100, 100,
+		wlroots.EdgeRight|wlroots.EdgeBottom, area, 0, 0, 0, 0, 0)
+	if negative != zero {
+		t.Fatalf("negative border = %+v, zero border = %+v", negative, zero)
+	}
+}
+
+func TestResizeFloatingGeometryKeepsLeftTopAnchorAtMinimum(t *testing.T) {
+	original := Geometry{X: 300, Y: 250, Width: 500, Height: 400}
+	got := resizeFloatingGeometry(original, 1000, 1000,
+		wlroots.EdgeLeft|wlroots.EdgeTop,
+		usableBox{width: 1600, height: 1000}, 2, 200, 150, 0, 0)
+	if got.Width != 200 || got.Height != 150 || got.X != 600 || got.Y != 500 {
+		t.Fatalf("unexpected minimum resize geometry: %+v", got)
+	}
+	if got.X+float64(got.Width) != 800 || got.Y+float64(got.Height) != 650 {
+		t.Fatalf("opposite corner moved: %+v", got)
+	}
+}
+
+func TestResizeCursorNameDefaultsWithoutEdges(t *testing.T) {
+	if got := resizeCursorName(0); got != "default" {
+		t.Fatalf("resizeCursorName(0) = %q, want default", got)
+	}
+}

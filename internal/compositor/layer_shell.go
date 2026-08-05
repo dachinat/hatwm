@@ -241,21 +241,72 @@ func (s *Server) arrangeLayers() {
 	// Exclusive mapped surfaces reserve space before normal/non-exclusive surfaces are placed.
 	for _, layer := range []uint32{layerOverlay, layerTop, layerBottom, layerBackground} {
 		for _, ls := range s.layerSurfaces {
-			if ls.mapped && ls.layer == layer && int32(C.hatwm_layer_surface_exclusive_zone(ls.ptr)) > 0 {
+			if !ls.mapped || ls.layer != layer {
+				continue
+			}
+			anchor := uint32(C.hatwm_layer_surface_anchor(ls.ptr))
+			zone := effectiveExclusiveZone(
+				anchor, int(C.hatwm_layer_surface_exclusive_zone(ls.ptr)))
+			if zone > 0 {
 				s.arrangeOneLayer(ls, full, &usable)
 			}
 		}
 	}
 	for _, layer := range []uint32{layerBackground, layerBottom, layerTop, layerOverlay} {
 		for _, ls := range s.layerSurfaces {
-			if ls.mapped && ls.layer == layer && int32(C.hatwm_layer_surface_exclusive_zone(ls.ptr)) <= 0 {
-				s.arrangeOneLayer(ls, full, &usable)
+			if !ls.mapped || ls.layer != layer {
+				continue
+			}
+			anchor := uint32(C.hatwm_layer_surface_anchor(ls.ptr))
+			zone := effectiveExclusiveZone(
+				anchor, int(C.hatwm_layer_surface_exclusive_zone(ls.ptr)))
+			if zone <= 0 {
+				s.arrangeOneLayer(ls, layerPlacementBounds(full, usable, zone), nil)
 			}
 		}
 	}
 
 	s.usable = usable
 	s.arrangeViewsIn(usable)
+}
+
+// effectiveExclusiveZone implements the anchor validation required by the
+// layer-shell protocol. A positive zone is meaningful only for a surface
+// anchored to exactly one edge, optionally with both perpendicular edges.
+// Invalid positive zones behave like zero and therefore avoid valid exclusive
+// surfaces such as panels.
+func effectiveExclusiveZone(anchor uint32, zone int) int {
+	if zone > 0 && exclusiveAnchorEdge(anchor) == 0 {
+		return 0
+	}
+	return zone
+}
+
+func exclusiveAnchorEdge(anchor uint32) uint32 {
+	horizontal := anchor & (anchorLeft | anchorRight)
+	vertical := anchor & (anchorTop | anchorBottom)
+	allHorizontal := uint32(anchorLeft | anchorRight)
+	allVertical := uint32(anchorTop | anchorBottom)
+
+	switch {
+	case vertical == anchorTop && (horizontal == 0 || horizontal == allHorizontal):
+		return anchorTop
+	case vertical == anchorBottom && (horizontal == 0 || horizontal == allHorizontal):
+		return anchorBottom
+	case horizontal == anchorLeft && (vertical == 0 || vertical == allVertical):
+		return anchorLeft
+	case horizontal == anchorRight && (vertical == 0 || vertical == allVertical):
+		return anchorRight
+	default:
+		return 0
+	}
+}
+
+func layerPlacementBounds(full, usable usableBox, zone int) usableBox {
+	if zone == 0 {
+		return usable
+	}
+	return full
 }
 
 func (s *Server) arrangeOneLayer(ls *LayerSurface, bounds usableBox, usable *usableBox) {
@@ -325,29 +376,29 @@ func (s *Server) arrangeOneLayer(ls *LayerSurface, bounds usableBox, usable *usa
 	if zone <= 0 {
 		return
 	}
-	// Reserve only surfaces attached to exactly one output edge, as prescribed by layer-shell.
-	switch {
-	case anchor&anchorTop != 0 && anchor&anchorBottom == 0:
+	// Reserve only surfaces with a protocol-valid exclusive anchor.
+	switch exclusiveAnchorEdge(anchor) {
+	case anchorTop:
 		amount := zone + mt
 		if amount > usable.height {
 			amount = usable.height
 		}
 		usable.y += amount
 		usable.height -= amount
-	case anchor&anchorBottom != 0 && anchor&anchorTop == 0:
+	case anchorBottom:
 		amount := zone + mb
 		if amount > usable.height {
 			amount = usable.height
 		}
 		usable.height -= amount
-	case anchor&anchorLeft != 0 && anchor&anchorRight == 0:
+	case anchorLeft:
 		amount := zone + ml
 		if amount > usable.width {
 			amount = usable.width
 		}
 		usable.x += amount
 		usable.width -= amount
-	case anchor&anchorRight != 0 && anchor&anchorLeft == 0:
+	case anchorRight:
 		amount := zone + mr
 		if amount > usable.width {
 			amount = usable.width

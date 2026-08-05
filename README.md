@@ -19,6 +19,22 @@ This is a clean-room core focused on predictable ownership and a small stable fe
 - an IPC socket used by `hatwmctl`, panels, pagers, and scripts
 - an in-process ScreenCast and appearance-settings portal backend
 
+## Project layout
+
+```text
+cmd/hatwm/                  executable entry point
+internal/compositor/       compositor implementation and tests
+internal/compositor/protocols/
+                            vendored Wayland protocol definitions
+data/                       session and XDG portal integration files
+meson.build                 build, test, and installation rules
+```
+
+The executable package is intentionally small. Window management, input,
+rendering, IPC, XWayland, portal, and native wlroots bridge code live together
+in the internal compositor package because cgo compiles the C bridge alongside
+the Go package that owns its callbacks.
+
 ## Build requirements
 
 - Go 1.26.5 or newer, as declared by `go.mod`

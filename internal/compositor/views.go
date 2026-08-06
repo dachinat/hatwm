@@ -398,6 +398,7 @@ func (s *Server) unmapView(v *View) {
 	s.updateDecoration(v)
 	if s.fullscreen == v {
 		s.fullscreen = nil
+		s.fullscreenMode = presentationNone
 	}
 	if s.grabbedView == v {
 		s.cancelViewGrab()

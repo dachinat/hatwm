@@ -20,6 +20,7 @@ extern void hatwmGoXWaylandRequestConfigure(
 extern void hatwmGoXWaylandRequestMove(void *surface);
 extern void hatwmGoXWaylandRequestResize(void *surface, uint32_t edges);
 extern void hatwmGoXWaylandRequestFullscreen(void *surface, bool fullscreen);
+extern void hatwmGoXWaylandRequestMaximize(void *surface, bool maximized);
 extern void hatwmGoXWaylandRequestActivate(void *surface);
 extern void hatwmGoXWaylandOverrideRedirect(void *surface, bool value);
 
@@ -153,7 +154,7 @@ static void handle_request_maximize(
         wl_container_of(listener, state, request_maximize);
     bool maximized =
         state->surface->maximized_horz && state->surface->maximized_vert;
-    hatwmGoXWaylandRequestFullscreen(state->surface, maximized);
+    hatwmGoXWaylandRequestMaximize(state->surface, maximized);
 }
 
 static void handle_request_activate(
@@ -399,11 +400,12 @@ void hatwm_xwayland_surface_close(
 }
 
 void hatwm_xwayland_surface_set_window_state(
-        struct wlr_xwayland_surface *surface, bool fullscreen) {
+        struct wlr_xwayland_surface *surface,
+        bool maximized, bool fullscreen) {
     if (surface == NULL) {
         return;
     }
-    wlr_xwayland_surface_set_maximized(surface, fullscreen);
+    wlr_xwayland_surface_set_maximized(surface, maximized);
     wlr_xwayland_surface_set_fullscreen(surface, fullscreen);
 }
 

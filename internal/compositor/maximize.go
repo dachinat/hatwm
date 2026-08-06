@@ -24,6 +24,18 @@ var maximizeRegistry = struct {
 	views: make(map[uintptr]*View),
 }
 
+type presentationMode uint8
+
+const (
+	presentationNone presentationMode = iota
+	presentationMaximized
+	presentationFullscreen
+)
+
+func presentationClientState(mode presentationMode) (maximized, fullscreen bool) {
+	return mode == presentationMaximized, mode == presentationFullscreen
+}
+
 func xdgTopLevelPointer(top wlroots.XDGTopLevel) unsafe.Pointer {
 	return *(*unsafe.Pointer)(unsafe.Pointer(&top))
 }
@@ -70,17 +82,18 @@ func (s *Server) stopListeningForMaximize(v *View) {
 	}
 }
 
-func setClientFullscreenState(v *View, enabled bool) {
+func setClientPresentationState(v *View, mode presentationMode) {
 	if v == nil {
 		return
 	}
+	maximized, fullscreen := presentationClientState(mode)
 	if v.IsXWayland {
-		v.setXWaylandWindowState(enabled)
+		v.setXWaylandWindowState(maximized, fullscreen)
 		return
 	}
 	C.hatwm_xdg_toplevel_set_window_state(
 		(*C.struct_wlr_xdg_toplevel)(xdgTopLevelPointer(v.TopLevel)),
-		C.bool(enabled),
+		C.bool(maximized), C.bool(fullscreen),
 	)
 }
 
@@ -92,7 +105,18 @@ func hatwmGoRequestMaximize(token C.uintptr_t, maximized C.bool) {
 	if v == nil || v.Server == nil || !v.Mapped {
 		return
 	}
-	v.Server.setViewFullscreen(v, bool(maximized))
+	v.Server.setViewMaximized(v, bool(maximized))
+}
+
+//export hatwmGoRequestFullscreen
+func hatwmGoRequestFullscreen(token C.uintptr_t, fullscreen C.bool) {
+	maximizeRegistry.RLock()
+	v := maximizeRegistry.views[uintptr(token)]
+	maximizeRegistry.RUnlock()
+	if v == nil || v.Server == nil || !v.Mapped {
+		return
+	}
+	v.Server.setViewFullscreen(v, bool(fullscreen))
 }
 
 //export hatwmGoMaximizeListenerDestroy

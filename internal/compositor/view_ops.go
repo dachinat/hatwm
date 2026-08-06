@@ -164,13 +164,13 @@ func (v *View) sizeConstraints() (int, int, int, int) {
 		int(C.hatwm_xdg_toplevel_max_height(top))
 }
 
-func (v *View) setXWaylandWindowState(fullscreen bool) {
+func (v *View) setXWaylandWindowState(maximized, fullscreen bool) {
 	if v == nil || !v.IsXWayland {
 		return
 	}
 	C.hatwm_xwayland_surface_set_window_state(
 		(*C.struct_wlr_xwayland_surface)(v.XWayland),
-		C.bool(fullscreen),
+		C.bool(maximized), C.bool(fullscreen),
 	)
 }
 

@@ -50,8 +50,9 @@ func (s *Server) switchWorkspace(number int) {
 		s.updateDecoration(previous)
 	}
 	if s.fullscreen != nil {
-		setClientFullscreenState(s.fullscreen, false)
+		setClientPresentationState(s.fullscreen, presentationNone)
 		s.fullscreen = nil
+		s.fullscreenMode = presentationNone
 	}
 
 	C.hatwm_clear_keyboard_focus((*C.struct_wlr_seat)(seatPointer(s.seat)))
@@ -78,8 +79,9 @@ func (s *Server) moveFocusedToWorkspace(number int) bool {
 	}
 
 	if s.fullscreen == view {
-		setClientFullscreenState(view, false)
+		setClientPresentationState(view, presentationNone)
 		s.fullscreen = nil
+		s.fullscreenMode = presentationNone
 	}
 	view.setActivated(false)
 	view.Workspace = number

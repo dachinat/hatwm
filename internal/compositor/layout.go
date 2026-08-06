@@ -450,23 +450,41 @@ func (s *Server) toggleFullscreen() {
 	if v == nil {
 		return
 	}
-	s.setViewFullscreen(v, s.fullscreen != v)
+	if s.fullscreen == v {
+		s.setViewPresentation(v, false, s.fullscreenMode)
+		return
+	}
+	s.setViewFullscreen(v, true)
 }
 
 func (s *Server) setViewFullscreen(v *View, enabled bool) {
+	s.setViewPresentation(v, enabled, presentationFullscreen)
+}
+
+func (s *Server) setViewMaximized(v *View, enabled bool) {
+	s.setViewPresentation(v, enabled, presentationMaximized)
+}
+
+func (s *Server) setViewPresentation(
+	v *View, enabled bool, mode presentationMode) {
 	if v == nil || !v.Mapped {
 		return
 	}
 
 	if !enabled {
-		if s.fullscreen != v {
-			// Keep the client's maximize button synchronized even if it asks to
-			// restore a view which HatWM no longer considers fullscreen.
-			setClientFullscreenState(v, false)
+		if s.fullscreen != v || s.fullscreenMode != mode {
+			// A maximize and a fullscreen request are independent. Refusing one
+			// must not clear the other state if it still owns the presentation.
+			if s.fullscreen == v {
+				setClientPresentationState(v, s.fullscreenMode)
+			} else {
+				setClientPresentationState(v, presentationNone)
+			}
 			return
 		}
 		s.fullscreen = nil
-		setClientFullscreenState(v, false)
+		s.fullscreenMode = presentationNone
+		setClientPresentationState(v, presentationNone)
 		if s.isFloatingView(v) {
 			s.setViewPosition(v, v.Saved.X, v.Saved.Y)
 			v.setSize(v.Saved.Width, v.Saved.Height)
@@ -478,13 +496,14 @@ func (s *Server) setViewFullscreen(v *View, enabled bool) {
 	}
 
 	if s.fullscreen == v {
-		setClientFullscreenState(v, true)
+		s.fullscreenMode = mode
+		setClientPresentationState(v, mode)
 		return
 	}
 
 	if s.fullscreen != nil {
 		old := s.fullscreen
-		setClientFullscreenState(old, false)
+		setClientPresentationState(old, presentationNone)
 		if s.isFloatingView(old) {
 			s.setViewPosition(old, old.Saved.X, old.Saved.Y)
 			old.setSize(old.Saved.Width, old.Saved.Height)
@@ -499,7 +518,8 @@ func (s *Server) setViewFullscreen(v *View, enabled bool) {
 		Height: uint32(g.Height),
 	}
 	s.fullscreen = v
-	setClientFullscreenState(v, true)
+	s.fullscreenMode = mode
+	setClientPresentationState(v, mode)
 	s.arrange()
 	s.updateAllDecorations()
 	s.emitIPCEvent("fullscreen_changed", s.ipcWindow(v))

@@ -246,6 +246,15 @@ func (s *Server) handleXWaylandRequestFullscreen(
 	s.setViewFullscreen(view, fullscreen)
 }
 
+func (s *Server) handleXWaylandRequestMaximize(
+	ptr *C.struct_wlr_xwayland_surface, maximized bool) {
+	view := s.xwaylandView(ptr)
+	if view == nil || !view.Managed {
+		return
+	}
+	s.setViewMaximized(view, maximized)
+}
+
 func (s *Server) handleXWaylandRequestActivate(
 	ptr *C.struct_wlr_xwayland_surface) {
 	view := s.xwaylandView(ptr)
@@ -375,6 +384,16 @@ func hatwmGoXWaylandRequestFullscreen(
 		activeServer.handleXWaylandRequestFullscreen(
 			(*C.struct_wlr_xwayland_surface)(surface),
 			bool(fullscreen))
+	}
+}
+
+//export hatwmGoXWaylandRequestMaximize
+func hatwmGoXWaylandRequestMaximize(
+	surface unsafe.Pointer, maximized C.bool) {
+	if activeServer != nil {
+		activeServer.handleXWaylandRequestMaximize(
+			(*C.struct_wlr_xwayland_surface)(surface),
+			bool(maximized))
 	}
 }
 

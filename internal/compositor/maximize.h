@@ -15,6 +15,7 @@ void hatwm_xdg_toplevel_unlisten_maximize(
     struct hatwm_maximize_listener *listener);
 void hatwm_xdg_toplevel_set_window_state(
     struct wlr_xdg_toplevel *toplevel,
+    bool maximized,
     bool fullscreen);
 void hatwm_xdg_toplevel_set_supported_capabilities(
     struct wlr_xdg_toplevel *toplevel);

@@ -94,6 +94,7 @@ type Server struct {
 	config              Config
 	running             bool
 	fullscreen          *View
+	fullscreenMode      presentationMode
 	wallpaperCmd        *exec.Cmd
 	wallpaperPath       string
 	notificationCmd     *exec.Cmd

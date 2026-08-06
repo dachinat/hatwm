@@ -78,6 +78,40 @@ func (s *Server) handleNewXWaylandSurface(
 		Workspace:  s.currentWorkspace,
 	}
 	s.views = append(s.views, view)
+	view.refreshWindowIdentity()
+}
+
+func cString(value *C.char) string {
+	if value == nil {
+		return ""
+	}
+	return C.GoString(value)
+}
+
+func (v *View) refreshWindowIdentity() {
+	if v == nil {
+		return
+	}
+	if !v.IsXWayland {
+		if v.TopLevel.Nil() {
+			return
+		}
+		v.AppID = v.TopLevel.AppId()
+		v.Title = v.TopLevel.Title()
+		v.XWaylandClass = ""
+		v.XWaylandInstance = ""
+		return
+	}
+	ptr := (*C.struct_wlr_xwayland_surface)(v.XWayland)
+	if ptr == nil {
+		return
+	}
+	v.AppID = ""
+	v.Title = cString(C.hatwm_xwayland_surface_title(ptr))
+	v.XWaylandClass = cString(C.hatwm_xwayland_surface_class(ptr))
+	v.XWaylandInstance = cString(C.hatwm_xwayland_surface_instance(ptr))
+	v.Modal = bool(C.hatwm_xwayland_surface_modal(ptr))
+	v.Dialog = v.Modal || bool(C.hatwm_xwayland_surface_has_parent(ptr))
 }
 
 func (s *Server) handleXWaylandAssociate(
@@ -106,6 +140,8 @@ func (s *Server) handleXWaylandMap(
 		return
 	}
 	view.Mapped = true
+	view.refreshWindowIdentity()
+	s.applyWindowRules(view, true)
 	view.Animation = ViewAnimation{}
 	view.invalidateXWaylandRoundedClip()
 	s.raiseDecoration(view)
@@ -127,7 +163,9 @@ func (s *Server) handleXWaylandMap(
 	}
 
 	s.moveViewFront(view)
-	s.requestViewActivation(view)
+	if view.ruleAllowsFocus() {
+		s.requestViewActivation(view)
+	}
 	s.arrange()
 	s.updateDecoration(view)
 	s.emitIPCEvent("window_opened", s.ipcWindow(view))
@@ -168,6 +206,12 @@ func (s *Server) handleXWaylandCommit(
 	view := s.xwaylandView(ptr)
 	if view == nil || !view.Mapped {
 		return
+	}
+	wasFloating, oldWorkspace := view.AutoFloating, view.Workspace
+	view.refreshWindowIdentity()
+	s.applyWindowRules(view, false)
+	if wasFloating != view.AutoFloating || oldWorkspace != view.Workspace {
+		s.arrange()
 	}
 	s.applyWindowOpacity(view)
 	if !view.Managed {
@@ -217,7 +261,7 @@ func (s *Server) handleXWaylandRequestConfigure(
 				X:     float64(int(x) - offset),
 				Y:     float64(int(y) - offset),
 				Width: uint32(width), Height: uint32(height),
-			}, s.usable, s.config.BorderSize, 0, 0)
+			}, s.viewArea(view), s.viewBorderSize(view), 0, 0)
 			s.setViewPositionImmediate(view, target.X, target.Y)
 			view.setSize(target.Width, target.Height)
 			view.Floating = target
@@ -394,6 +438,25 @@ func hatwmGoXWaylandRequestMaximize(
 		activeServer.handleXWaylandRequestMaximize(
 			(*C.struct_wlr_xwayland_surface)(surface),
 			bool(maximized))
+	}
+}
+
+//export hatwmGoXWaylandMetadataChanged
+func hatwmGoXWaylandMetadataChanged(surface unsafe.Pointer) {
+	if activeServer == nil {
+		return
+	}
+	v := activeServer.xwaylandView(
+		(*C.struct_wlr_xwayland_surface)(surface))
+	if v == nil {
+		return
+	}
+	wasFloating, oldWorkspace := v.AutoFloating, v.Workspace
+	v.refreshWindowIdentity()
+	activeServer.applyWindowRules(v, false)
+	if v.Mapped && (wasFloating != v.AutoFloating || oldWorkspace != v.Workspace) {
+		activeServer.arrange()
+		activeServer.emitIPCEvent("window_updated", activeServer.ipcWindow(v))
 	}
 }
 

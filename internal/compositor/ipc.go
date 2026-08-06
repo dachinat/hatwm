@@ -103,6 +103,12 @@ type IPCOutput struct {
 
 type IPCWindow struct {
 	ID         uint64 `json:"id"`
+	Title      string `json:"title,omitempty"`
+	AppID      string `json:"app_id,omitempty"`
+	Class      string `json:"class,omitempty"`
+	Instance   string `json:"instance,omitempty"`
+	Output     string `json:"output,omitempty"`
+	Rules      string `json:"rules,omitempty"`
 	Workspace  int    `json:"workspace"`
 	Mapped     bool   `json:"mapped"`
 	Focused    bool   `json:"focused"`
@@ -364,6 +370,7 @@ func (s *Server) handleIPCCommand(req IPCRequest) IPCMessage {
 			if appearanceChanged(oldConfig, s.config) {
 				s.applyAppearanceProfile()
 			}
+			s.reapplyWindowRules()
 			s.applyWindowOpacityToAll()
 			s.startWallpaper()
 			s.updateAllDecorations()
@@ -485,12 +492,19 @@ func (s *Server) ipcWindow(view *View) IPCWindow {
 		width = view.TileWidth
 		height = view.TileHeight
 	}
-	if view.Managed && s.fullscreen != view && s.config.BorderSize > 0 {
-		width += 2 * s.config.BorderSize
-		height += 2 * s.config.BorderSize
+	border := s.viewBorderSize(view)
+	if view.Managed && s.fullscreen != view && border > 0 {
+		width += 2 * border
+		height += 2 * border
 	}
 	return IPCWindow{
 		ID:         view.ID,
+		Title:      view.Title,
+		AppID:      view.AppID,
+		Class:      view.XWaylandClass,
+		Instance:   view.XWaylandInstance,
+		Output:     view.RuleActions.Output,
+		Rules:      view.MatchedRules,
 		Workspace:  view.Workspace,
 		Mapped:     view.Mapped,
 		Focused:    view == s.focusedView(),

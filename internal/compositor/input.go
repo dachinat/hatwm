@@ -304,7 +304,7 @@ func (s *Server) processCursorResize() {
 		X: float64(s.grabBox.X), Y: float64(s.grabBox.Y),
 		Width: uint32(s.grabBox.Width), Height: uint32(s.grabBox.Height),
 	}, s.cursor.X()-s.grabX, s.cursor.Y()-s.grabY,
-		s.resizeEdges, s.usable, s.config.BorderSize,
+		s.resizeEdges, s.viewArea(v), s.viewBorderSize(v),
 		minWidth, minHeight, maxWidth, maxHeight)
 	v.setSize(target.Width, target.Height)
 	s.setViewPositionImmediate(v, target.X, target.Y)
@@ -622,8 +622,9 @@ func (s *Server) processTilingDrag() {
 		g := candidate.geometry()
 		left := float64(candidate.RootTree.Node().X())
 		top := float64(candidate.RootTree.Node().Y())
-		right := left + float64(g.Width+2*s.config.BorderSize)
-		bottom := top + float64(g.Height+2*s.config.BorderSize)
+		border := s.viewBorderSize(candidate)
+		right := left + float64(g.Width+2*border)
+		bottom := top + float64(g.Height+2*border)
 		if x >= left && x < right && y >= top && y < bottom {
 			target = candidate
 			break
@@ -644,8 +645,9 @@ func (s *Server) beginPointerResize(v *View) {
 	g := v.geometry()
 	left := v.RootTree.Node().X()
 	top := v.RootTree.Node().Y()
-	right := left + g.Width + 2*s.config.BorderSize
-	bottom := top + g.Height + 2*s.config.BorderSize
+	border := s.viewBorderSize(v)
+	right := left + g.Width + 2*border
+	bottom := top + g.Height + 2*border
 
 	edges := wlroots.Edges(0)
 	if int(s.cursor.X()) < left+(right-left)/2 {

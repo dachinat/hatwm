@@ -30,9 +30,13 @@ func (s *Server) applyWindowOpacity(view *View) {
 	if s == nil || view == nil || view.RootTree.Nil() {
 		return
 	}
+	opacity := s.config.WindowOpacity
+	if view.RuleActions.HasOpacity {
+		opacity = view.RuleActions.Opacity
+	}
 	C.hatwm_scene_tree_set_opacity(
 		(*C.struct_wlr_scene_tree)(sceneTreePointer(view.RootTree)),
-		C.float(s.config.WindowOpacity),
+		C.float(opacity),
 	)
 }
 

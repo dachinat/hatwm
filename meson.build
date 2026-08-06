@@ -97,6 +97,8 @@ hatwm_sources = files(
   'internal/compositor/views.go',
   'internal/compositor/wallpaper.go',
   'internal/compositor/window_opacity.go',
+  'internal/compositor/window_rule_config.go',
+  'internal/compositor/window_rules.go',
   'internal/compositor/workspace.go',
   'internal/compositor/xdg_activation.go',
   'internal/compositor/xdg_dialog.go',

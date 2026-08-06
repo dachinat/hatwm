@@ -51,6 +51,7 @@ type Config struct {
 	AnimationOpenOffset int
 	ActiveBorderColor   [4]float32
 	InactiveBorderColor [4]float32
+	WindowRules         []WindowRule
 	KeyBindings         []KeyBinding
 	Autostart           []string
 }
@@ -127,6 +128,13 @@ Mod4+Shift+Escape = exit
 
 [autostart]
 # waybar = waybar
+
+# [window-rule color-picker]
+# app_id = com.github.wayland-color-picker-gtk4
+# floating = true
+# centered = true
+# keep_above = true
+# opacity = 1.0
 `
 
 func defaultConfig() Config {
@@ -192,6 +200,7 @@ func LoadConfig() (Config, error) {
 	defer f.Close()
 
 	section := ""
+	var currentWindowRule *WindowRule
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -200,6 +209,12 @@ func LoadConfig() (Config, error) {
 		}
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.ToLower(strings.TrimSpace(line[1 : len(line)-1]))
+			currentWindowRule = nil
+			if name, ok := windowRuleSectionName(section); ok {
+				cfg.WindowRules = append(cfg.WindowRules, WindowRule{Name: name})
+				currentWindowRule = &cfg.WindowRules[len(cfg.WindowRules)-1]
+				section = "window-rule"
+			}
 			continue
 		}
 		parts := strings.SplitN(line, "=", 2)
@@ -223,6 +238,14 @@ func LoadConfig() (Config, error) {
 		case "autostart":
 			if value != "" {
 				cfg.Autostart = append(cfg.Autostart, value)
+			}
+		case "window-rule":
+			if currentWindowRule == nil {
+				continue
+			}
+			if err := parseWindowRuleSetting(currentWindowRule, key, value); err != nil {
+				slog.Warn("ignoring invalid window rule setting",
+					"rule", currentWindowRule.Name, "setting", key, "error", err)
 			}
 		}
 	}

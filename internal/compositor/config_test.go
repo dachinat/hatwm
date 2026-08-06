@@ -164,6 +164,20 @@ keyboard_layouts = us, ge
 color_scheme = dark
 icon_theme = Papirus-Dark
 
+[window-rule color-picker]
+app_id = com.github.wayland-color-picker-*
+dialog = true
+floating = true
+centered = true
+keep_above = true
+opacity = 1.0
+workspace = 2
+size = 420x510
+position = 30,40
+fullscreen = false
+focus = true
+border = false
+
 [keybindings]
 Mod4+x = exec example-command
 BrokenModifier+x = close
@@ -188,6 +202,25 @@ panel = hatwmpanel
 	}
 	if len(cfg.Autostart) != 1 || cfg.Autostart[0] != "hatwmpanel" {
 		t.Fatalf("autostart = %v, want [hatwmpanel]", cfg.Autostart)
+	}
+	if len(cfg.WindowRules) != 1 {
+		t.Fatalf("window rules = %d, want 1", len(cfg.WindowRules))
+	}
+	rule := cfg.WindowRules[0]
+	a := rule.Actions
+	if rule.Name != "color-picker" ||
+		rule.AppID != "com.github.wayland-color-picker-*" ||
+		!rule.HasDialog || !rule.Dialog ||
+		!a.HasFloating || !a.Floating ||
+		!a.HasCentered || !a.Centered ||
+		!a.HasKeepAbove || !a.KeepAbove ||
+		!a.HasOpacity || a.Opacity != 1 ||
+		!a.HasWorkspace || a.Workspace != 2 ||
+		!a.HasWidth || a.Width != 420 || !a.HasHeight || a.Height != 510 ||
+		!a.HasX || a.X != 30 || !a.HasY || a.Y != 40 ||
+		!a.HasFullscreen || a.Fullscreen || !a.HasFocus || !a.Focus ||
+		!a.HasBorder || a.Border {
+		t.Fatalf("unexpected parsed window rule: %+v", rule)
 	}
 
 	actions := make(map[string]int)

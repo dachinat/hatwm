@@ -23,6 +23,7 @@ extern void hatwmGoXWaylandRequestFullscreen(void *surface, bool fullscreen);
 extern void hatwmGoXWaylandRequestMaximize(void *surface, bool maximized);
 extern void hatwmGoXWaylandRequestActivate(void *surface);
 extern void hatwmGoXWaylandOverrideRedirect(void *surface, bool value);
+extern void hatwmGoXWaylandMetadataChanged(void *surface);
 
 struct hatwm_xwayland_surface {
     struct wlr_xwayland_surface *surface;
@@ -38,6 +39,9 @@ struct hatwm_xwayland_surface {
     struct wl_listener request_activate;
     struct wl_listener set_geometry;
     struct wl_listener set_override_redirect;
+    struct wl_listener set_title;
+    struct wl_listener set_class;
+    struct wl_listener set_parent;
 
     struct wl_listener map;
     struct wl_listener unmap;
@@ -181,6 +185,27 @@ static void handle_set_override_redirect(
         state->surface, state->surface->override_redirect);
 }
 
+static void handle_metadata_changed(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct hatwm_xwayland_surface *state =
+        wl_container_of(listener, state, set_title);
+    hatwmGoXWaylandMetadataChanged(state->surface);
+}
+
+static void handle_class_changed(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct hatwm_xwayland_surface *state =
+        wl_container_of(listener, state, set_class);
+    hatwmGoXWaylandMetadataChanged(state->surface);
+}
+
+static void handle_parent_changed(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct hatwm_xwayland_surface *state =
+        wl_container_of(listener, state, set_parent);
+    hatwmGoXWaylandMetadataChanged(state->surface);
+}
+
 static void handle_surface_destroy(struct wl_listener *listener, void *data) {
     (void)data;
     struct hatwm_xwayland_surface *state =
@@ -199,6 +224,9 @@ static void handle_surface_destroy(struct wl_listener *listener, void *data) {
     wl_list_remove(&state->request_activate.link);
     wl_list_remove(&state->set_geometry.link);
     wl_list_remove(&state->set_override_redirect.link);
+    wl_list_remove(&state->set_title.link);
+    wl_list_remove(&state->set_class.link);
+    wl_list_remove(&state->set_parent.link);
     free(state);
 }
 
@@ -222,6 +250,9 @@ static void handle_new_surface(struct wl_listener *listener, void *data) {
     state->request_activate.notify = handle_request_activate;
     state->set_geometry.notify = handle_set_geometry;
     state->set_override_redirect.notify = handle_set_override_redirect;
+    state->set_title.notify = handle_metadata_changed;
+    state->set_class.notify = handle_class_changed;
+    state->set_parent.notify = handle_parent_changed;
 
     wl_signal_add(&surface->events.associate, &state->associate);
     wl_signal_add(&surface->events.dissociate, &state->dissociate);
@@ -236,6 +267,9 @@ static void handle_new_surface(struct wl_listener *listener, void *data) {
     wl_signal_add(
         &surface->events.set_override_redirect,
         &state->set_override_redirect);
+    wl_signal_add(&surface->events.set_title, &state->set_title);
+    wl_signal_add(&surface->events.set_class, &state->set_class);
+    wl_signal_add(&surface->events.set_parent, &state->set_parent);
 
     hatwmGoXWaylandNew(surface);
     if (surface->surface != NULL) {
@@ -343,6 +377,26 @@ int hatwm_xwayland_surface_width(struct wlr_xwayland_surface *surface) {
 
 int hatwm_xwayland_surface_height(struct wlr_xwayland_surface *surface) {
     return surface != NULL ? surface->height : 0;
+}
+
+const char *hatwm_xwayland_surface_title(struct wlr_xwayland_surface *surface) {
+    return surface != NULL ? surface->title : NULL;
+}
+
+const char *hatwm_xwayland_surface_class(struct wlr_xwayland_surface *surface) {
+    return surface != NULL ? surface->class : NULL;
+}
+
+const char *hatwm_xwayland_surface_instance(struct wlr_xwayland_surface *surface) {
+    return surface != NULL ? surface->instance : NULL;
+}
+
+bool hatwm_xwayland_surface_modal(struct wlr_xwayland_surface *surface) {
+    return surface != NULL && surface->modal;
+}
+
+bool hatwm_xwayland_surface_has_parent(struct wlr_xwayland_surface *surface) {
+    return surface != NULL && surface->parent != NULL;
 }
 
 static int16_t clamp_int16(int value) {

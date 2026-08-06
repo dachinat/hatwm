@@ -57,11 +57,15 @@ func (s *Server) switchWorkspace(number int) {
 
 	C.hatwm_clear_keyboard_focus((*C.struct_wlr_seat)(seatPointer(s.seat)))
 	s.currentWorkspace = number
+	s.applyRuleFullscreenForCurrentWorkspace()
 	s.arrange()
 
 	views := s.mappedViews()
 	if len(views) > 0 {
 		next := views[0]
+		if s.fullscreen != nil && s.fullscreen.Workspace == s.currentWorkspace {
+			next = s.fullscreen
+		}
 		surface := next.clientSurface()
 		s.focusView(next, &surface)
 	}

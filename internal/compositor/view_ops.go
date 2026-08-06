@@ -214,8 +214,8 @@ func (v *View) surfaceOffset() int {
 		v.Server.fullscreen == v {
 		return 0
 	}
-	if v.Server.config.BorderSize > 0 {
-		return v.Server.config.BorderSize
+	if border := v.Server.viewBorderSize(v); border > 0 {
+		return border
 	}
 	return 0
 }

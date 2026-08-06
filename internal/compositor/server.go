@@ -487,6 +487,7 @@ func (s *Server) reloadConfigIfChanged() {
 	oldConfig := s.config
 	s.config = cfg
 	s.configModTime = st.ModTime()
+	s.reapplyWindowRules()
 	s.applyWindowOpacityToAll()
 	if oldWallpaper != cfg.Wallpaper {
 		s.startWallpaper()

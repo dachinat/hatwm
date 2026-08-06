@@ -61,7 +61,7 @@ func hatwmGoXDGDialogChanged(
 	modalChanged := v.Modal != bool(isModal)
 	v.Dialog = bool(isDialog)
 	v.Modal = bool(isModal)
-	v.AutoFloating = v.shouldAutoFloat()
+	activeServer.applyWindowRules(v, false)
 	if v.Mapped && (wasAutoFloating != v.AutoFloating || modalChanged) {
 		activeServer.arrange()
 		if becameModal {

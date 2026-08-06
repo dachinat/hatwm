@@ -39,6 +39,11 @@ int hatwm_xwayland_surface_x(struct wlr_xwayland_surface *surface);
 int hatwm_xwayland_surface_y(struct wlr_xwayland_surface *surface);
 int hatwm_xwayland_surface_width(struct wlr_xwayland_surface *surface);
 int hatwm_xwayland_surface_height(struct wlr_xwayland_surface *surface);
+const char *hatwm_xwayland_surface_title(struct wlr_xwayland_surface *surface);
+const char *hatwm_xwayland_surface_class(struct wlr_xwayland_surface *surface);
+const char *hatwm_xwayland_surface_instance(struct wlr_xwayland_surface *surface);
+bool hatwm_xwayland_surface_modal(struct wlr_xwayland_surface *surface);
+bool hatwm_xwayland_surface_has_parent(struct wlr_xwayland_surface *surface);
 
 void hatwm_xwayland_surface_configure(
     struct wlr_xwayland_surface *surface,

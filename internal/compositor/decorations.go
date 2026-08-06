@@ -64,7 +64,7 @@ func sceneRect(parent *C.struct_wlr_scene_tree, color [4]C.float) *C.struct_wlr_
 }
 
 func (s *Server) ensureDecoration(v *View) {
-	if v == nil || v.Decor.ready || s.config.BorderSize <= 0 {
+	if v == nil || v.Decor.ready || s.viewBorderSize(v) <= 0 {
 		return
 	}
 	parent := C.hatwm_scene_tree(sceneTreePointer(v.RootTree))
@@ -170,7 +170,7 @@ func (s *Server) updateDecoration(v *View) {
 		return
 	}
 
-	b := s.config.BorderSize
+	b := s.viewBorderSize(v)
 	if b <= 0 || s.fullscreen == v {
 		s.hideDecoration(v)
 		v.SurfaceTree.Node().SetPosition(0, 0)
@@ -199,7 +199,7 @@ func (s *Server) updateDecoration(v *View) {
 	}
 	c := [4]C.float{C.float(color[0]), C.float(color[1]), C.float(color[2]), C.float(color[3])}
 
-	radius := s.config.BorderRounding
+	radius := s.viewBorderRounding(v)
 	maxRadius := totalW / 2
 	if totalH/2 < maxRadius {
 		maxRadius = totalH / 2

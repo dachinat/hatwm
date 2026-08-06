@@ -197,6 +197,63 @@ capability from native Wayland toplevels. `window_button_layout` provides the
 equivalent GTK/XWayland fallback; its default keeps maximize and close while
 removing the non-functional minimize button.
 
+### Window rules
+
+Ordered `[window-rule NAME]` sections classify native Wayland and XWayland
+windows and override their initial behavior. Match values are
+case-insensitive shell patterns, so `*` and `?` wildcards are supported. Every
+configured matcher in a rule must match. When several rules match, their
+actions are merged in file order and later values override earlier ones.
+
+```ini
+[window-rule color-picker]
+app_id = com.github.wayland-color-picker-gtk4
+floating = true
+centered = true
+keep_above = true
+opacity = 1.0
+
+[window-rule discord]
+class = discord
+instance = discord-*
+workspace = 3
+focus = false
+border = true
+border_rounding = 10
+```
+
+Matchers are `app_id`, `class`, `instance`, `title`, `dialog`, and `modal`.
+`app_id` applies to native Wayland windows; `class` and `instance` apply to
+XWayland windows. `dialog` and `modal` accept `true` or `false`. Metadata is
+tracked after creation too, so rules can begin matching when an application
+sets its title, app ID, class, parent, or dialog state late.
+
+Actions are:
+
+| Action | Values | Effect |
+| --- | --- | --- |
+| `floating` | `true` or `false` | include or exclude the window from tiling |
+| `centered` | `true` or `false` | center floating geometry on its output |
+| `keep_above` | `true` or `false` | control stacking above ordinary tiles |
+| `workspace` | workspace number | assign the window before it is shown |
+| `output` | output name | choose the output used for floating placement and fullscreen |
+| `opacity` | `0.0`–`1.0` | override global window opacity |
+| `width`, `height` | pixels | set floating dimensions |
+| `size` | `WIDTHxHEIGHT` | set both dimensions |
+| `x`, `y` | pixels | set output-relative floating coordinates |
+| `position` | `X,Y` | set both coordinates |
+| `fullscreen` | `true` or `false` | request or suppress fullscreen presentation |
+| `focus` | `true` or `false` | allow or prevent focus when the window maps |
+| `border` | `true` or `false` | enable or disable the server-side border |
+| `border_size` | `0`–`32` | override border width |
+| `border_rounding` | `0`–`128` | override corner radius |
+
+Output assignment, size, position, and centering imply `floating = true`
+unless a rule explicitly sets `floating = false`. Explicit coordinates
+override centering on their respective axes. Unknown output names fall back to
+the primary usable area and are reported in the compositor log. Rules are
+reapplied when the configuration is reloaded.
+
 ### Core settings
 
 The main `[settings]` values and accepted ranges are:

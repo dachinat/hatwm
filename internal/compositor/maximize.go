@@ -120,6 +120,22 @@ func hatwmGoRequestFullscreen(token C.uintptr_t, fullscreen C.bool) {
 	v.Server.setViewFullscreen(v, bool(fullscreen))
 }
 
+//export hatwmGoWindowMetadataChanged
+func hatwmGoWindowMetadataChanged(token C.uintptr_t) {
+	maximizeRegistry.RLock()
+	v := maximizeRegistry.views[uintptr(token)]
+	maximizeRegistry.RUnlock()
+	if v == nil || v.Server == nil {
+		return
+	}
+	wasFloating, oldWorkspace := v.AutoFloating, v.Workspace
+	v.Server.applyWindowRules(v, false)
+	if v.Mapped && (wasFloating != v.AutoFloating || oldWorkspace != v.Workspace) {
+		v.Server.arrange()
+		v.Server.emitIPCEvent("window_updated", v.Server.ipcWindow(v))
+	}
+}
+
 //export hatwmGoMaximizeListenerDestroy
 func hatwmGoMaximizeListenerDestroy(token C.uintptr_t) {
 	maximizeRegistry.Lock()

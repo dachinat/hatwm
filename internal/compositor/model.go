@@ -39,16 +39,22 @@ type View struct {
 	TileWidth   int
 	TileHeight  int
 
-	Mapped        bool
-	Urgent        bool
-	Dialog        bool
-	Modal         bool
-	AutoFloating  bool
-	Workspace     int
-	Saved         Geometry
-	Floating      Geometry
-	FloatingValid bool
-	Animation     ViewAnimation
+	Mapped           bool
+	Urgent           bool
+	Dialog           bool
+	Modal            bool
+	AutoFloating     bool
+	AppID            string
+	Title            string
+	XWaylandClass    string
+	XWaylandInstance string
+	RuleActions      WindowRuleActions
+	MatchedRules     string
+	Workspace        int
+	Saved            Geometry
+	Floating         Geometry
+	FloatingValid    bool
+	Animation        ViewAnimation
 
 	Server           *Server
 	MaximizeToken    uintptr

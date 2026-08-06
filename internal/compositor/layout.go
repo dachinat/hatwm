@@ -34,9 +34,13 @@ func (s *Server) arrangeViewsIn(area usableBox) {
 		for _, v := range views {
 			v.RootTree.Node().SetEnabled(v == s.fullscreen)
 		}
-		s.setViewPosition(s.fullscreen, float64(ux), float64(uy))
-		s.fullscreen.setTiledContentSize(uint32(outW), uint32(outH))
-		s.fullscreen.setSize(uint32(outW), uint32(outH))
+		fullscreenArea := s.viewArea(s.fullscreen)
+		s.setViewPosition(s.fullscreen,
+			float64(fullscreenArea.x), float64(fullscreenArea.y))
+		s.fullscreen.setTiledContentSize(
+			uint32(fullscreenArea.width), uint32(fullscreenArea.height))
+		s.fullscreen.setSize(
+			uint32(fullscreenArea.width), uint32(fullscreenArea.height))
 		s.updateDecoration(s.fullscreen)
 		return
 	}
@@ -63,8 +67,8 @@ func (s *Server) arrangeViewsIn(area usableBox) {
 	if len(views) == 0 {
 		return
 	}
-	inner := func(w, h int) (uint32, uint32) {
-		b := 2 * s.config.BorderSize
+	inner := func(v *View, w, h int) (uint32, uint32) {
+		b := 2 * s.viewBorderSize(v)
 		if w <= b {
 			w = b + 1
 		}
@@ -75,7 +79,7 @@ func (s *Server) arrangeViewsIn(area usableBox) {
 	}
 	if len(views) == 1 {
 		v := views[0]
-		w, h := inner(outW-2*gap, outH-2*gap)
+		w, h := inner(v, outW-2*gap, outH-2*gap)
 		s.setViewPosition(v, float64(ux+gap), float64(uy+gap))
 		v.setTiledContentSize(w, h)
 		v.setSize(w, h)
@@ -89,7 +93,7 @@ func (s *Server) arrangeViewsIn(area usableBox) {
 		for i, tile := range minimumAwareGridTiles(
 			area, minimums, gap, s.config.BorderSize) {
 			v := views[i]
-			w, h := inner(tile.width, tile.height)
+			w, h := inner(v, tile.width, tile.height)
 			s.setViewPosition(v, float64(tile.x), float64(tile.y))
 			v.setTiledContentSize(w, h)
 			v.setSize(w, h)
@@ -117,7 +121,7 @@ func (s *Server) arrangeViewsIn(area usableBox) {
 	}
 	stackW := outW - masterW - 3*gap
 	master := views[0]
-	mw, mh := inner(masterW, outH-2*gap)
+	mw, mh := inner(master, masterW, outH-2*gap)
 	s.setViewPosition(master, float64(ux+gap), float64(uy+gap))
 	master.setTiledContentSize(mw, mh)
 	master.setSize(mw, mh)
@@ -125,7 +129,7 @@ func (s *Server) arrangeViewsIn(area usableBox) {
 	stackH := (outH - 2*gap - (count-1)*gap) / count
 	for i := 1; i < len(views); i++ {
 		v := views[i]
-		w, h := inner(stackW, stackH)
+		w, h := inner(v, stackW, stackH)
 		x := ux + masterW + 2*gap
 		y := uy + gap + (i-1)*(stackH+gap)
 		s.setViewPosition(v, float64(x), float64(y))
@@ -269,7 +273,7 @@ func (s *Server) placeFloatingView(v *View, index int) {
 	}
 	wasTiled := v.TileWidth > 0 && v.TileHeight > 0
 	v.clearTiledContentSize()
-	area := s.usable
+	area := s.viewArea(v)
 	if area.width <= 0 || area.height <= 0 {
 		return
 	}
@@ -278,8 +282,9 @@ func (s *Server) placeFloatingView(v *View, index int) {
 	if newPlacement {
 		current := v.geometry()
 		width, height := current.Width, current.Height
-		maxW := area.width - 2*s.config.BorderSize
-		maxH := area.height - 2*s.config.BorderSize
+		border := s.viewBorderSize(v)
+		maxW := area.width - 2*border
+		maxH := area.height - 2*border
 		if wasTiled || width <= 1 || width > maxW {
 			width = minInt(800, maxW)
 		}
@@ -291,7 +296,7 @@ func (s *Server) placeFloatingView(v *View, index int) {
 		centerY := area.y + area.height/2
 		if parent := s.parentView(v); parent != nil {
 			parentGeometry := parent.geometry()
-			parentBorder := s.config.BorderSize
+			parentBorder := s.viewBorderSize(parent)
 			if s.fullscreen == parent {
 				parentBorder = 0
 			}
@@ -302,18 +307,18 @@ func (s *Server) placeFloatingView(v *View, index int) {
 			offset = 0
 		}
 		geometry = Geometry{
-			X:     float64(centerX - (width+2*s.config.BorderSize)/2 + offset),
-			Y:     float64(centerY - (height+2*s.config.BorderSize)/2 + offset),
+			X:     float64(centerX - (width+2*border)/2 + offset),
+			Y:     float64(centerY - (height+2*border)/2 + offset),
 			Width: uint32(width), Height: uint32(height),
 		}
 	}
 	if newPlacement || v.AutoFloating || v.Dialog || v.Modal {
 		minWidth, minHeight := v.minimumSize()
 		geometry = clampFloatingGeometry(
-			geometry, area, s.config.BorderSize, minWidth, minHeight)
+			geometry, area, s.viewBorderSize(v), minWidth, minHeight)
 	} else {
 		geometry = clampFloatingMoveGeometry(
-			geometry, area, s.config.BorderSize, floatingVisibleStrip)
+			geometry, area, s.viewBorderSize(v), floatingVisibleStrip)
 	}
 	s.setViewPositionImmediate(v, geometry.X, geometry.Y)
 	v.setSize(geometry.Width, geometry.Height)
@@ -349,10 +354,10 @@ func (s *Server) setFloatingPosition(v *View, x, y float64) {
 	if v.AutoFloating || v.Dialog || v.Modal {
 		minWidth, minHeight := v.minimumSize()
 		target = clampFloatingGeometry(
-			target, s.usable, s.config.BorderSize, minWidth, minHeight)
+			target, s.viewArea(v), s.viewBorderSize(v), minWidth, minHeight)
 	} else {
 		target = clampFloatingMoveGeometry(
-			target, s.usable, s.config.BorderSize, floatingVisibleStrip)
+			target, s.viewArea(v), s.viewBorderSize(v), floatingVisibleStrip)
 	}
 	s.setViewPositionImmediate(v, target.X, target.Y)
 	v.Floating = target

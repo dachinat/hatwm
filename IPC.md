@@ -100,6 +100,10 @@ Example window returned by `get_windows`:
 ```json
 {
   "id": 12,
+  "title": "Color Picker",
+  "app_id": "com.github.wayland-color-picker-gtk4",
+  "output": "DP-1",
+  "rules": "color-picker",
   "workspace": 2,
   "mapped": true,
   "focused": false,
@@ -121,8 +125,11 @@ it when a mapped application requests activation from another workspace and
 clears it when that window receives focus. Urgency changes emit
 `window_urgent` and `workspace_updated`.
 
-Window records also expose additive `dialog`, `modal`, and `floating` fields.
-An `xdg-dialog-v1` state change emits `window_updated`.
+Window records also expose additive `title`, `app_id`, `class`, `instance`,
+`output`, `rules`, `dialog`, `modal`, and `floating` fields. Empty metadata is
+omitted. The `rules` value lists matching configured rule names in evaluation
+order. Metadata and `xdg-dialog-v1` state changes emit `window_updated` when
+they alter classification or placement.
 
 The rectangle uses compositor/global output coordinates and includes HatWM's
 server-side border when one is visible. A workspace pager can normalize these

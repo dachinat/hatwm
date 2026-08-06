@@ -30,7 +30,7 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 		s.notifyFractionalScale(clientSurface)
 		v.Mapped = true
 		s.updateXDGDialogState(v)
-		v.AutoFloating = v.shouldAutoFloat()
+		s.applyWindowRules(v, true)
 		v.Animation = ViewAnimation{}
 		s.applyWindowOpacity(v)
 		v.RootTree.Node().SetEnabled(v.Workspace == s.currentWorkspace)
@@ -38,7 +38,9 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 		// existing behavior of becoming the master tile, but later focus
 		// changes must not silently rearrange the layout.
 		s.moveViewFront(v)
-		s.requestViewActivation(v)
+		if v.ruleAllowsFocus() {
+			s.requestViewActivation(v)
+		}
 		s.arrange()
 		s.updateDecoration(v)
 		s.emitIPCEvent("window_opened", s.ipcWindow(v))
@@ -68,12 +70,13 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 		if v.Mapped {
 			s.applyWindowOpacity(v)
 			wasAutoFloating := v.AutoFloating
-			v.AutoFloating = v.shouldAutoFloat()
+			oldWorkspace := v.Workspace
+			s.applyWindowRules(v, false)
 			if s.isFloatingView(v) && s.fullscreen != v {
 				s.rememberFloatingGeometry(v)
 			}
 			s.updateDecoration(v)
-			if wasAutoFloating != v.AutoFloating {
+			if wasAutoFloating != v.AutoFloating || oldWorkspace != v.Workspace {
 				s.arrange()
 			}
 		}
@@ -169,21 +172,21 @@ func (s *Server) keepAutoFloatingViewsAboveTiles() {
 	// Non-modal floating windows stay above tiles, while explicit modal
 	// dialogs form the uppermost part of the normal-window stack.
 	for _, v := range s.views {
-		if v != focused && v.Managed && v.Mapped && v.AutoFloating && !v.Modal &&
+		if v != focused && v.Managed && v.Mapped && v.shouldKeepAbove() && !v.Modal &&
 			v.Workspace == s.currentWorkspace {
 			v.RootTree.Node().RaiseToTop()
 		}
 	}
-	if focused != nil && focused.AutoFloating && !focused.Modal {
+	if focused != nil && focused.shouldKeepAbove() && !focused.Modal {
 		focused.RootTree.Node().RaiseToTop()
 	}
 	for _, v := range s.views {
-		if v != focused && v.Managed && v.Mapped && v.AutoFloating && v.Modal &&
+		if v != focused && v.Managed && v.Mapped && v.shouldKeepAbove() && v.Modal &&
 			v.Workspace == s.currentWorkspace {
 			v.RootTree.Node().RaiseToTop()
 		}
 	}
-	if focused != nil && focused.AutoFloating && focused.Modal {
+	if focused != nil && focused.shouldKeepAbove() && focused.Modal {
 		focused.RootTree.Node().RaiseToTop()
 	}
 }
@@ -205,8 +208,17 @@ func shouldAutoFloatXDG(
 }
 
 func (v *View) shouldAutoFloat() bool {
-	if v == nil || v.IsXWayland || v.TopLevel.Nil() {
+	if v == nil {
 		return false
+	}
+	if v.RuleActions.HasFloating {
+		return v.RuleActions.Floating
+	}
+	if v.ruleGeometryForcesFloating() {
+		return true
+	}
+	if v.IsXWayland || v.TopLevel.Nil() {
+		return v.Dialog || v.Modal
 	}
 	minWidth, minHeight, maxWidth, maxHeight := v.sizeConstraints()
 	return shouldAutoFloatXDG(v.Dialog, v.Modal, !v.TopLevel.Parent().Nil(),

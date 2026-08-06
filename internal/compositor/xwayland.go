@@ -252,7 +252,7 @@ func (s *Server) handleXWaylandRequestMaximize(
 	if view == nil || !view.Managed {
 		return
 	}
-	s.setViewMaximized(view, maximized)
+	s.handleViewMaximizeRequest(view, maximized)
 }
 
 func (s *Server) handleXWaylandRequestActivate(

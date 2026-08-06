@@ -461,8 +461,23 @@ func (s *Server) setViewFullscreen(v *View, enabled bool) {
 	s.setViewPresentation(v, enabled, presentationFullscreen)
 }
 
-func (s *Server) setViewMaximized(v *View, enabled bool) {
-	s.setViewPresentation(v, enabled, presentationMaximized)
+func (s *Server) handleViewMaximizeRequest(v *View, requested bool) {
+	if v == nil || !v.Mapped {
+		return
+	}
+	if s.fullscreen == v && s.fullscreenMode == presentationMaximizedFullscreen {
+		s.setViewPresentation(v, false, presentationMaximizedFullscreen)
+		return
+	}
+	if requested {
+		s.setViewPresentation(v, true, presentationMaximizedFullscreen)
+		return
+	}
+	if s.fullscreen == v {
+		setClientPresentationState(v, s.fullscreenMode)
+	} else {
+		setClientPresentationState(v, presentationNone)
+	}
 }
 
 func (s *Server) setViewPresentation(

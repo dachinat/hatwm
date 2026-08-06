@@ -28,12 +28,13 @@ type presentationMode uint8
 
 const (
 	presentationNone presentationMode = iota
-	presentationMaximized
 	presentationFullscreen
+	presentationMaximizedFullscreen
 )
 
 func presentationClientState(mode presentationMode) (maximized, fullscreen bool) {
-	return mode == presentationMaximized, mode == presentationFullscreen
+	return mode == presentationMaximizedFullscreen,
+		mode == presentationFullscreen || mode == presentationMaximizedFullscreen
 }
 
 func xdgTopLevelPointer(top wlroots.XDGTopLevel) unsafe.Pointer {
@@ -105,7 +106,7 @@ func hatwmGoRequestMaximize(token C.uintptr_t, maximized C.bool) {
 	if v == nil || v.Server == nil || !v.Mapped {
 		return
 	}
-	v.Server.setViewMaximized(v, bool(maximized))
+	v.Server.handleViewMaximizeRequest(v, bool(maximized))
 }
 
 //export hatwmGoRequestFullscreen

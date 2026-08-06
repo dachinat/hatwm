@@ -10,8 +10,9 @@ func TestPresentationClientStateSeparatesMaximizeAndFullscreen(t *testing.T) {
 		fullscreen bool
 	}{
 		{name: "none", mode: presentationNone},
-		{name: "maximized", mode: presentationMaximized, maximized: true},
 		{name: "fullscreen", mode: presentationFullscreen, fullscreen: true},
+		{name: "maximized fullscreen", mode: presentationMaximizedFullscreen,
+			maximized: true, fullscreen: true},
 	}
 
 	for _, tt := range tests {

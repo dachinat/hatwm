@@ -193,6 +193,11 @@ struct wlr_surface *hatwm_session_lock_surface_surface(
     return surface != NULL ? surface->surface : NULL;
 }
 
+struct wlr_output *hatwm_session_lock_surface_output(
+        struct wlr_session_lock_surface_v1 *surface) {
+    return surface != NULL ? surface->output : NULL;
+}
+
 struct wlr_scene_tree *hatwm_session_lock_surface_create_scene(
         struct wlr_session_lock_surface_v1 *surface,
         struct wlr_scene_tree *parent,

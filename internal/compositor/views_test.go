@@ -4,15 +4,14 @@ import "testing"
 
 func TestMappedViewsFiltersManagementMappingAndWorkspace(t *testing.T) {
 	visible := &View{ID: 1, Managed: true, Mapped: true, Workspace: 2}
-	server := &Server{
-		currentWorkspace: 2,
-		views: []*View{
-			visible,
-			{ID: 2, Managed: false, Mapped: true, Workspace: 2},
-			{ID: 3, Managed: true, Mapped: false, Workspace: 2},
-			{ID: 4, Managed: true, Mapped: true, Workspace: 1},
-		},
+	server := &Server{views: []*View{
+		visible,
+		{ID: 2, Managed: false, Mapped: true, Workspace: 2},
+		{ID: 3, Managed: true, Mapped: false, Workspace: 2},
+		{ID: 4, Managed: true, Mapped: true, Workspace: 1},
+	},
 	}
+	server.fallbackOutput.CurrentWorkspace = 2
 	got := server.mappedViews()
 	if len(got) != 1 || got[0] != visible {
 		t.Fatalf("mapped views = %v, want only visible view", got)
@@ -21,10 +20,11 @@ func TestMappedViewsFiltersManagementMappingAndWorkspace(t *testing.T) {
 
 func TestMappedTiledViewsExcludesAutoFloatingViews(t *testing.T) {
 	tiled := &View{ID: 1, Managed: true, Mapped: true, Workspace: 1}
-	server := &Server{currentWorkspace: 1, views: []*View{
+	server := &Server{views: []*View{
 		tiled,
 		{ID: 2, Managed: true, Mapped: true, Workspace: 1, AutoFloating: true},
 	}}
+	server.fallbackOutput.CurrentWorkspace = 1
 	got := server.mappedTiledViews()
 	if len(got) != 1 || got[0] != tiled {
 		t.Fatalf("mapped tiled views = %v, want only tiled view", got)
@@ -41,6 +41,32 @@ func TestIsFloatingViewReflectsLayoutAndViewPolicy(t *testing.T) {
 	server.config.Tiling = false
 	if !server.isFloatingView(regular) {
 		t.Fatal("regular view is not floating in floating layout")
+	}
+}
+
+func TestDesiredViewSceneLayer(t *testing.T) {
+	server := &Server{config: Config{Tiling: true}}
+	tests := []struct {
+		name string
+		view *View
+		want viewSceneLayer
+	}{
+		{name: "tiled window", view: &View{Managed: true}, want: viewSceneLayerTiled},
+		{name: "floating window", view: &View{Managed: true, AutoFloating: true}, want: viewSceneLayerFloating},
+		{name: "unmanaged window", view: &View{}, want: viewSceneLayerFloating},
+		{name: "keep above rule", view: &View{Managed: true, RuleActions: WindowRuleActions{HasKeepAbove: true, KeepAbove: true}}, want: viewSceneLayerFloating},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := server.desiredViewSceneLayer(tc.view); got != tc.want {
+				t.Fatalf("desired scene layer = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	server.config.Tiling = false
+	if got := server.desiredViewSceneLayer(&View{Managed: true}); got != viewSceneLayerFloating {
+		t.Fatalf("floating-layout scene layer = %v, want floating", got)
 	}
 }
 

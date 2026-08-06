@@ -18,6 +18,7 @@ type SessionLockSurface struct {
 	ptr    *C.struct_wlr_session_lock_surface_v1
 	scene  *C.struct_wlr_scene_tree
 	mapped bool
+	output *OutputState
 }
 
 func (s *Server) initSessionLock() error {
@@ -84,6 +85,8 @@ func (s *Server) handleSessionLockSurfaceNew(
 	s.lockSurfaces = append(s.lockSurfaces, &SessionLockSurface{
 		ptr:   ptr,
 		scene: scene,
+		output: s.outputStateForPointer(
+			C.hatwm_session_lock_surface_output(ptr)),
 	})
 }
 
@@ -180,9 +183,14 @@ func (s *Server) focusSessionLockSurface(surface *SessionLockSurface) {
 	if ptr == nil {
 		return
 	}
+	if surface.output != nil {
+		s.activeOutput = surface.output
+	}
 	var wlrSurface wlroots.Surface
 	*(*unsafe.Pointer)(unsafe.Pointer(&wlrSurface)) = unsafe.Pointer(ptr)
-	s.seat.NotifyKeyboardEnter(wlrSurface, s.seat.Keyboard())
+	if len(s.keyboards) > 0 {
+		s.seat.NotifyKeyboardEnter(wlrSurface, s.seat.Keyboard())
+	}
 }
 
 func (s *Server) restoreFocusAfterSessionUnlock() {

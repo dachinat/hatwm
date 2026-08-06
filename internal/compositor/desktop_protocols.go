@@ -35,8 +35,21 @@ func (s *Server) notifyFractionalScale(surface wlroots.Surface) {
 		return
 	}
 	scale := float64(1)
-	for _, output := range s.outputs {
-		if candidate := float64(output.Scale()); candidate > scale {
+	root := surface.RootSurface()
+	for _, view := range s.views {
+		if view.Associated && view.clientSurface() == root && view.Output != nil {
+			scale = float64(view.Output.Output.Scale())
+			break
+		}
+	}
+	if layer := s.layerSurfaceForSurface(root); layer != nil && layer.output != nil {
+		scale = float64(layer.output.Output.Scale())
+	}
+	if scale <= 0 {
+		scale = 1
+	}
+	if scale == 1 && len(s.outputs) == 1 {
+		if candidate := float64(s.outputs[0].Output.Scale()); candidate > 0 {
 			scale = candidate
 		}
 	}

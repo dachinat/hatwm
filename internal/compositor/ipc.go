@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swaywm/go-wlroots/wlroots"
 )
 
 const ipcProtocolVersion = 1
@@ -80,6 +82,7 @@ type IPCState struct {
 	FocusedWindow  *IPCWindow     `json:"focused_window,omitempty"`
 	Workspaces     []IPCWorkspace `json:"workspaces"`
 	Output         IPCOutput      `json:"output"`
+	Outputs        []IPCOutput    `json:"outputs"`
 }
 
 type IPCWorkspace struct {
@@ -91,14 +94,19 @@ type IPCWorkspace struct {
 }
 
 type IPCOutput struct {
-	X            int `json:"x"`
-	Y            int `json:"y"`
-	Width        int `json:"width"`
-	Height       int `json:"height"`
-	UsableX      int `json:"usable_x"`
-	UsableY      int `json:"usable_y"`
-	UsableWidth  int `json:"usable_width"`
-	UsableHeight int `json:"usable_height"`
+	Name         string  `json:"name,omitempty"`
+	Active       bool    `json:"active"`
+	Scale        float32 `json:"scale"`
+	Workspace    int     `json:"workspace"`
+	Fullscreen   bool    `json:"fullscreen"`
+	X            int     `json:"x"`
+	Y            int     `json:"y"`
+	Width        int     `json:"width"`
+	Height       int     `json:"height"`
+	UsableX      int     `json:"usable_x"`
+	UsableY      int     `json:"usable_y"`
+	UsableWidth  int     `json:"usable_width"`
+	UsableHeight int     `json:"usable_height"`
 }
 
 type IPCWindow struct {
@@ -241,8 +249,8 @@ func (ipc *IPCServer) writeLoop(client *ipcClient) {
 
 func (client *ipcClient) enqueue(message IPCMessage) {
 	client.mu.RLock()
+	defer client.mu.RUnlock()
 	closed := client.closed
-	client.mu.RUnlock()
 	if closed {
 		return
 	}
@@ -311,13 +319,15 @@ func (s *Server) handleIPCRequest(client *ipcClient, req IPCRequest) IPCMessage 
 			return ipcError(req.ID, fmt.Sprintf("unsupported protocol version %d", req.ProtocolVersion))
 		}
 		ok := true
-		return IPCMessage{Type: "hello", ID: req.ID, Success: &ok, ProtocolVersion: ipcProtocolVersion, Server: "HatWM", ServerVersion: "development", Capabilities: []string{"state", "workspaces", "windows", "events", "commands"}}
+		return IPCMessage{Type: "hello", ID: req.ID, Success: &ok, ProtocolVersion: ipcProtocolVersion, Server: "HatWM", ServerVersion: Version, Capabilities: []string{"state", "workspaces", "windows", "events", "commands", "diagnostics"}}
 	case "get_state":
 		return ipcSuccess(req.ID, s.ipcState())
 	case "get_workspaces":
 		return ipcSuccess(req.ID, s.ipcWorkspaces())
 	case "get_windows":
 		return ipcSuccess(req.ID, s.ipcWindows())
+	case "get_diagnostics":
+		return ipcSuccess(req.ID, s.ipcDiagnostics())
 	case "subscribe":
 		client.mu.Lock()
 		client.subscriptions = make(map[string]bool)
@@ -330,6 +340,43 @@ func (s *Server) handleIPCRequest(client *ipcClient, req IPCRequest) IPCMessage 
 		return s.handleIPCCommand(req)
 	default:
 		return ipcError(req.ID, "unknown request type")
+	}
+}
+
+func (s *Server) ipcDiagnostics() map[string]any {
+	devices := make([]map[string]any, 0, len(s.inputDevices))
+	for _, device := range s.inputDevices {
+		devices = append(devices, map[string]any{
+			"name": device.Name(), "type": inputDeviceTypeName(device.Type()),
+		})
+	}
+	protocols := map[string]bool{
+		"xdg_shell": true, "xwayland": s.xwayland != nil,
+		"layer_shell": s.layerShell != nil, "session_lock": s.sessionLockManager != nil,
+		"screencast": s.screencastPortal != nil, "clipboard": s.clipboard != nil,
+		"input_extensions": s.inputProtocols != nil, "output_management": s.outputProtocols != nil,
+	}
+	return map[string]any{
+		"version": VersionString(), "outputs": s.ipcOutputs(),
+		"devices": devices, "focused_window": s.ipcState().FocusedWindow,
+		"session_locked": s.sessionLocked, "protocols": protocols,
+	}
+}
+
+func inputDeviceTypeName(deviceType wlroots.InputDeviceType) string {
+	switch deviceType {
+	case wlroots.InputDeviceTypeKeyboard:
+		return "keyboard"
+	case wlroots.InputDeviceTypePointer:
+		return "pointer"
+	case wlroots.InputDeviceTypeTouch:
+		return "touch"
+	case wlroots.InputDeviceTypeTabletTool:
+		return "tablet_tool"
+	case wlroots.InputDeviceTypeTabletPad:
+		return "tablet_pad"
+	default:
+		return fmt.Sprintf("unknown(%d)", deviceType)
 	}
 }
 
@@ -355,26 +402,9 @@ func (s *Server) handleIPCCommand(req IPCRequest) IPCMessage {
 	case "toggle_tiling", "toggle_fullscreen", "toggle_keyboard_layout",
 		"cycle_focus", "close", "reload_config", "exit":
 		if command == "reload_config" {
-			cfg, err := LoadConfig()
-			if err != nil {
+			if err := s.reloadConfig(); err != nil {
 				return ipcError(req.ID, err.Error())
 			}
-			oldConfig := s.config
-			s.config = cfg
-			if oldConfig.CursorTheme != cfg.CursorTheme || oldConfig.CursorSize != cfg.CursorSize {
-				if err := s.configureCursorTheme(cfg.CursorTheme, cfg.CursorSize); err != nil {
-					s.config = oldConfig
-					return ipcError(req.ID, err.Error())
-				}
-			}
-			if appearanceChanged(oldConfig, s.config) {
-				s.applyAppearanceProfile()
-			}
-			s.reapplyWindowRules()
-			s.applyWindowOpacityToAll()
-			s.startWallpaper()
-			s.updateAllDecorations()
-			s.arrange()
 			handled = true
 			s.emitIPCEvent("config_reloaded", s.ipcState())
 		} else {
@@ -399,6 +429,7 @@ func ipcError(id any, message string) IPCMessage {
 }
 
 func (s *Server) ipcState() IPCState {
+	output := s.currentOutputState()
 	layouts := s.config.KeyboardLayouts
 	layout := ""
 	if len(layouts) > 0 {
@@ -414,27 +445,43 @@ func (s *Server) ipcState() IPCState {
 		count = 9
 	}
 	return IPCState{
-		Workspace:      s.currentWorkspace,
+		Workspace:      output.CurrentWorkspace,
 		WorkspaceCount: count,
 		Tiling:         s.config.Tiling,
-		Fullscreen:     s.fullscreen != nil,
+		Fullscreen:     output.Fullscreen != nil,
 		KeyboardLayout: layout,
 		Wallpaper:      s.wallpaperPath,
 		FocusedWindow:  focused,
 		Workspaces:     s.ipcWorkspaces(),
 		Output:         s.ipcOutput(),
+		Outputs:        s.ipcOutputs(),
 	}
 }
 
 func (s *Server) ipcOutput() IPCOutput {
-	result := IPCOutput{
-		UsableX:      s.usable.x,
-		UsableY:      s.usable.y,
-		UsableWidth:  s.usable.width,
-		UsableHeight: s.usable.height,
+	return s.ipcOutputState(s.currentOutputState())
+}
+
+func (s *Server) ipcOutputs() []IPCOutput {
+	result := make([]IPCOutput, 0, len(s.outputs))
+	for _, output := range s.outputs {
+		result = append(result, s.ipcOutputState(output))
 	}
-	if len(s.outputs) > 0 {
-		result.Width, result.Height = s.outputs[0].EffectiveResolution()
+	return result
+}
+
+func (s *Server) ipcOutputState(output *OutputState) IPCOutput {
+	if output == nil || output == &s.fallbackOutput {
+		return IPCOutput{}
+	}
+	result := IPCOutput{
+		Name: output.Output.Name(), Active: output == s.currentOutputState(),
+		Scale: output.Output.Scale(), Workspace: output.CurrentWorkspace,
+		Fullscreen: output.Fullscreen != nil,
+		X:          output.Full.x, Y: output.Full.y,
+		Width: output.Full.width, Height: output.Full.height,
+		UsableX: output.Usable.x, UsableY: output.Usable.y,
+		UsableWidth: output.Usable.width, UsableHeight: output.Usable.height,
 	}
 	if result.UsableWidth <= 0 {
 		result.UsableWidth = result.Width
@@ -451,6 +498,7 @@ func (s *Server) ipcWorkspaces() []IPCWorkspace {
 		count = 9
 	}
 	focused := s.focusedView()
+	active := s.currentOutputState()
 	result := make([]IPCWorkspace, 0, count)
 	for number := 1; number <= count; number++ {
 		windows := 0
@@ -463,7 +511,7 @@ func (s *Server) ipcWorkspaces() []IPCWorkspace {
 		}
 		result = append(result, IPCWorkspace{
 			Number:  number,
-			Active:  number == s.currentWorkspace,
+			Active:  number == active.CurrentWorkspace,
 			Focused: focused != nil && focused.Workspace == number,
 			Urgent:  urgent,
 			Windows: windows,
@@ -493,7 +541,7 @@ func (s *Server) ipcWindow(view *View) IPCWindow {
 		height = view.TileHeight
 	}
 	border := s.viewBorderSize(view)
-	if view.Managed && s.fullscreen != view && border > 0 {
+	if view.Managed && !s.viewFullscreen(view) && border > 0 {
 		width += 2 * border
 		height += 2 * border
 	}
@@ -503,7 +551,7 @@ func (s *Server) ipcWindow(view *View) IPCWindow {
 		AppID:      view.AppID,
 		Class:      view.XWaylandClass,
 		Instance:   view.XWaylandInstance,
-		Output:     view.RuleActions.Output,
+		Output:     s.viewOutputName(view),
 		Rules:      view.MatchedRules,
 		Workspace:  view.Workspace,
 		Mapped:     view.Mapped,
@@ -512,7 +560,7 @@ func (s *Server) ipcWindow(view *View) IPCWindow {
 		Dialog:     view.Dialog,
 		Modal:      view.Modal,
 		Floating:   s.isFloatingView(view),
-		Fullscreen: view == s.fullscreen,
+		Fullscreen: s.viewFullscreen(view),
 		XWayland:   view.IsXWayland,
 		X:          x,
 		Y:          y,

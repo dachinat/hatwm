@@ -3,6 +3,32 @@
 
 #include <xkbcommon/xkbcommon.h>
 
+bool hatwm_keyboard_layouts_valid(const char *layouts,
+                                  const char *variants,
+                                  const char *options) {
+    if (layouts == NULL || layouts[0] == '\0') {
+        return false;
+    }
+    struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (context == NULL) {
+        return false;
+    }
+    struct xkb_rule_names names = {
+        .rules = NULL,
+        .model = NULL,
+        .layout = layouts,
+        .variant = variants != NULL && variants[0] != '\0' ? variants : NULL,
+        .options = options != NULL && options[0] != '\0' ? options : NULL,
+    };
+    struct xkb_keymap *keymap = xkb_keymap_new_from_names(
+        context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    if (keymap != NULL) {
+        xkb_keymap_unref(keymap);
+    }
+    xkb_context_unref(context);
+    return keymap != NULL;
+}
+
 bool hatwm_keyboard_set_layouts(struct wlr_keyboard *keyboard,
                                 const char *layouts,
                                 const char *variants,

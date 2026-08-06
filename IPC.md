@@ -25,12 +25,13 @@ Request:
 {"type":"get_state","id":2}
 {"type":"get_workspaces","id":3}
 {"type":"get_windows","id":4}
+{"type":"get_diagnostics","id":5}
 ```
 
 ## Event subscription
 
 ```json
-{"type":"subscribe","id":5,"events":["workspace_changed","workspace_updated","window_opened","window_closed","window_moved","window_updated","window_urgent","focus_changed","layout_changed","fullscreen_changed","keyboard_layout_changed","wallpaper_changed","config_reloaded","shutdown"]}
+{"type":"subscribe","id":6,"events":["workspace_changed","workspace_updated","window_opened","window_closed","window_moved","window_output_changed","window_updated","window_urgent","focus_changed","layout_changed","fullscreen_changed","keyboard_layout_changed","wallpaper_changed","config_reloaded","shutdown"]}
 ```
 
 Use `"*"` to subscribe to every event.
@@ -74,9 +75,15 @@ Then enter:
 
 ## Geometry data for panels and pagers
 
-`get_state` includes the primary output bounds. `get_windows` includes each
-mapped window's outer rectangle. These fields are additive and keep protocol v1
-backward compatible.
+`get_state.output` contains the active output for backward compatibility, and
+`get_state.outputs` contains every output with layout coordinates, usable
+bounds, scale, active workspace, and fullscreen state. `get_windows` includes
+each mapped window's assigned output and outer rectangle. These fields are
+additive and keep protocol v1 backward compatible.
+
+`get_diagnostics` reports HatWM/wlroots versions, outputs, input devices,
+focused window, lock state, and the availability of optional protocol
+subsystems.
 
 Example output data in `get_state`:
 

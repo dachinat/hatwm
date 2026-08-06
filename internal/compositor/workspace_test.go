@@ -20,13 +20,14 @@ func TestValidWorkspaceFallsBackToNine(t *testing.T) {
 }
 
 func TestWorkspaceArgumentValidationDoesNotMutateState(t *testing.T) {
-	server := &Server{config: Config{WorkspaceCount: 3}, currentWorkspace: 2}
+	server := &Server{config: Config{WorkspaceCount: 3}}
+	server.fallbackOutput.CurrentWorkspace = 2
 	for _, arg := range []string{"", "two", "0", "4"} {
 		if server.switchWorkspaceArg(arg) {
 			t.Errorf("switchWorkspaceArg(%q) unexpectedly succeeded", arg)
 		}
-		if server.currentWorkspace != 2 {
-			t.Fatalf("invalid argument %q changed workspace to %d", arg, server.currentWorkspace)
+		if server.fallbackOutput.CurrentWorkspace != 2 {
+			t.Fatalf("invalid argument %q changed workspace to %d", arg, server.fallbackOutput.CurrentWorkspace)
 		}
 	}
 }

@@ -37,6 +37,11 @@ func (s *Server) configureCursorTheme(theme string, size int) error {
 	if err != nil {
 		return err
 	}
+	s.installCursorManager(manager)
+	return nil
+}
+
+func (s *Server) installCursorManager(manager wlroots.XCursorManager) {
 	old := s.cursorMgr
 	s.cursorMgr = manager
 	s.setInputProtocolCursorManager(manager)
@@ -54,7 +59,6 @@ func (s *Server) configureCursorTheme(theme string, size int) error {
 	if xcursorManagerPointer(old) != nil {
 		old.Destroy()
 	}
-	return nil
 }
 
 func (s *Server) setCursorImage(name string) bool {

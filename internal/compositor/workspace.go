@@ -40,7 +40,8 @@ func (s *Server) moveFocusedToWorkspaceArg(arg string) bool {
 }
 
 func (s *Server) switchWorkspace(number int) {
-	if number == s.currentWorkspace || !s.validWorkspace(number) {
+	output := s.currentOutputState()
+	if number == output.CurrentWorkspace || !s.validWorkspace(number) {
 		return
 	}
 
@@ -49,22 +50,20 @@ func (s *Server) switchWorkspace(number int) {
 		previous.setActivated(false)
 		s.updateDecoration(previous)
 	}
-	if s.fullscreen != nil {
-		setClientPresentationState(s.fullscreen, presentationNone)
-		s.fullscreen = nil
-		s.fullscreenMode = presentationNone
+	if output.Fullscreen != nil {
+		setClientPresentationState(output.Fullscreen, presentationNone)
+		output.Fullscreen = nil
+		output.FullscreenMode = presentationNone
 	}
 
 	C.hatwm_clear_keyboard_focus((*C.struct_wlr_seat)(seatPointer(s.seat)))
-	s.currentWorkspace = number
+	output.CurrentWorkspace = number
 	s.applyRuleFullscreenForCurrentWorkspace()
 	s.arrange()
 
-	views := s.mappedViews()
-	if len(views) > 0 {
-		next := views[0]
-		if s.fullscreen != nil && s.fullscreen.Workspace == s.currentWorkspace {
-			next = s.fullscreen
+	if next := s.focusedViewForOutput(output); next != nil {
+		if output.Fullscreen != nil && output.Fullscreen.Workspace == output.CurrentWorkspace {
+			next = output.Fullscreen
 		}
 		surface := next.clientSurface()
 		s.focusView(next, &surface)
@@ -82,10 +81,11 @@ func (s *Server) moveFocusedToWorkspace(number int) bool {
 		return true
 	}
 
-	if s.fullscreen == view {
+	output := s.ensureViewOutput(view)
+	if output.Fullscreen == view {
 		setClientPresentationState(view, presentationNone)
-		s.fullscreen = nil
-		s.fullscreenMode = presentationNone
+		output.Fullscreen = nil
+		output.FullscreenMode = presentationNone
 	}
 	view.setActivated(false)
 	view.Workspace = number
@@ -93,9 +93,7 @@ func (s *Server) moveFocusedToWorkspace(number int) bool {
 	C.hatwm_clear_keyboard_focus((*C.struct_wlr_seat)(seatPointer(s.seat)))
 
 	s.arrange()
-	views := s.mappedViews()
-	if len(views) > 0 {
-		next := views[0]
+	if next := s.focusedViewForOutput(output); next != nil {
 		surface := next.clientSurface()
 		s.focusView(next, &surface)
 	}

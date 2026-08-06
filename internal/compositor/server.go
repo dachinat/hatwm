@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -43,6 +44,8 @@ type Server struct {
 	backgroundTree wlroots.SceneTree
 	bottomTree     wlroots.SceneTree
 	normalTree     wlroots.SceneTree
+	tiledTree      wlroots.SceneTree
+	floatingTree   wlroots.SceneTree
 	topTree        wlroots.SceneTree
 	overlayTree    wlroots.SceneTree
 	lockTree       wlroots.SceneTree
@@ -61,7 +64,6 @@ type Server struct {
 	foreignToplevels *C.struct_hatwm_foreign_toplevels
 	screencastPortal *C.struct_hatwm_screencast_portal
 	layerSurfaces    []*LayerSurface
-	usable           usableBox
 
 	sessionLockManager *C.struct_hatwm_session_lock_manager
 	sessionLock        *C.struct_wlr_session_lock_v1
@@ -74,11 +76,11 @@ type Server struct {
 	cursorMgr           wlroots.XCursorManager
 	seat                wlroots.Seat
 	keyboards           []*Keyboard
+	inputDevices        []wlroots.InputDevice
 	keyboardModifiers   wlroots.KeyboardModifier
 	keyboardLayoutIndex int
 	vtSwitchKeyCode     uint32
 	vtSwitchKeyActive   bool
-	currentWorkspace    int
 
 	cursorMode        CursorMode
 	grabbedView       *View
@@ -90,18 +92,21 @@ type Server struct {
 	tileMasterRatio   float64
 	grabMasterRatio   float64
 
-	outputLayout wlroots.OutputLayout
-	outputs      []wlroots.Output
+	outputLayout   wlroots.OutputLayout
+	outputs        []*OutputState
+	activeOutput   *OutputState
+	fallbackOutput OutputState
 
 	config              Config
 	running             bool
-	fullscreen          *View
-	fullscreenMode      presentationMode
+	shuttingDown        bool
 	wallpaperCmd        *exec.Cmd
 	wallpaperPath       string
 	notificationCmd     *exec.Cmd
 	configModTime       time.Time
 	lastScreencastFrame time.Time
+	shutdownRequested   atomic.Bool
+	reloadRequested     atomic.Bool
 
 	ipc        *IPCServer
 	nextViewID uint64
@@ -112,10 +117,14 @@ func seatPointer(seat wlroots.Seat) unsafe.Pointer {
 }
 
 func NewServer() (*Server, error) {
-	s := &Server{running: true, tileMasterRatio: 0.5, currentWorkspace: 1}
+	s := &Server{running: true, tileMasterRatio: 0.5}
+	s.fallbackOutput.CurrentWorkspace = 1
 	cfg, err := LoadConfig()
 	if err != nil {
 		return nil, err
+	}
+	if err := validateKeyboardLayouts(cfg); err != nil {
+		return nil, fmt.Errorf("invalid keyboard configuration: %w", err)
 	}
 	s.config = cfg
 
@@ -153,14 +162,21 @@ func NewServer() (*Server, error) {
 	s.backgroundTree = s.scene.Tree().NewSceneTree()
 	s.bottomTree = s.scene.Tree().NewSceneTree()
 	s.normalTree = s.scene.Tree().NewSceneTree()
+	// Managed windows live in explicit sibling layers. Raising a tiled window
+	// can no longer cover floating windows or dialogs because RaiseToTop is
+	// constrained to that window's layer.
+	s.tiledTree = s.normalTree.NewSceneTree()
+	s.floatingTree = s.normalTree.NewSceneTree()
 	s.topTree = s.scene.Tree().NewSceneTree()
 	s.overlayTree = s.scene.Tree().NewSceneTree()
 	// This is deliberately created last: lock surfaces must remain above every
 	// normal and layer-shell client, including overlay panels.
 	s.lockTree = s.scene.Tree().NewSceneTree()
 	s.lockTree.Node().SetEnabled(false)
-	if err := s.initXWayland(); err != nil {
-		return nil, err
+	if os.Getenv("HATWM_DISABLE_XWAYLAND") != "1" {
+		if err := s.initXWayland(); err != nil {
+			slog.Warn("XWayland unavailable; continuing with native Wayland support", "error", err)
+		}
 	}
 
 	// xdg_toplevel.wm_capabilities was added in xdg-shell v5. Advertise v6,
@@ -244,11 +260,12 @@ func (s *Server) Start(extraStartup string) error {
 		return err
 	}
 	xDisplay := s.xwaylandDisplayName()
-	if xDisplay == "" {
-		return fmt.Errorf("XWayland did not provide a DISPLAY name")
-	}
-	if err := os.Setenv("DISPLAY", xDisplay); err != nil {
-		return err
+	if xDisplay != "" {
+		if err := os.Setenv("DISPLAY", xDisplay); err != nil {
+			return err
+		}
+	} else {
+		_ = os.Unsetenv("DISPLAY")
 	}
 	// These variables help desktop components select their Wayland backends and
 	// identify the current session when HatWM is launched outside a display manager.
@@ -259,7 +276,8 @@ func (s *Server) Start(extraStartup string) error {
 	slog.Info("HatWM started", "WAYLAND_DISPLAY", socket)
 	logXWaylandDisplay(xDisplay)
 	if err := s.startScreenCastPortal(); err != nil {
-		return err
+		slog.Warn("ScreenCast portal unavailable; continuing without screen sharing",
+			"error", err)
 	}
 	if err := s.startIPC(); err != nil {
 		return fmt.Errorf("start IPC: %w", err)
@@ -284,10 +302,22 @@ func (s *Server) Run() error {
 	loop := s.display.EventLoop()
 	var lastConfigCheck time.Time
 	for s.running {
+		if s.shutdownRequested.Load() {
+			s.running = false
+			break
+		}
 		s.display.FlushClients()
 		loop.Dispatch(10 * time.Millisecond)
 		wlroots.DrainRetiredListeners()
 		s.processIPCRequests()
+		if s.reloadRequested.Swap(false) {
+			if err := s.reloadConfig(); err != nil {
+				slog.Error("SIGHUP config reload failed", "error", err)
+			} else {
+				slog.Info("config reloaded after SIGHUP")
+				s.emitIPCEvent("config_reloaded", s.ipcState())
+			}
+		}
 		s.tickAnimations(time.Now())
 		s.tickScreenCastPortal(time.Now())
 		if time.Since(lastConfigCheck) >= time.Second {
@@ -300,6 +330,7 @@ func (s *Server) Run() error {
 		s.ipc.Close()
 		s.ipc = nil
 	}
+	s.shuttingDown = true
 	s.stopNotificationDaemon()
 	s.stopWallpaper()
 	s.stopScreenCastPortal()
@@ -340,6 +371,13 @@ func (s *Server) Run() error {
 		C.hatwm_session_lock_manager_destroy(s.sessionLockManager)
 		s.sessionLockManager = nil
 	}
+	if s.layerShell != nil {
+		C.hatwm_layer_shell_destroy(s.layerShell)
+		s.layerShell = nil
+	}
+	// Native callbacks must not retain a Go server after all callback-owning
+	// bridges have been destroyed.
+	activeServer = nil
 	s.scene.Tree().Node().Destroy()
 	s.cursorMgr.Destroy()
 	s.outputLayout.Destroy()
@@ -348,24 +386,70 @@ func (s *Server) Run() error {
 	return nil
 }
 
+func (s *Server) RequestShutdown() { s.shutdownRequested.Store(true) }
+
+func (s *Server) RequestReload() { s.reloadRequested.Store(true) }
+
 func (s *Server) handleNewOutput(output wlroots.Output) {
-	output.InitRender(s.allocator, s.renderer)
+	if !output.InitRender(s.allocator, s.renderer) {
+		slog.Error("could not initialize output rendering; leaving output disabled",
+			"output", output.Name())
+		return
+	}
 	state := wlroots.NewOutputState()
 	state.StateInit()
 	state.StateSetEnabled(true)
 	if mode, err := output.PreferredMode(); err == nil {
 		state.SetMode(mode)
+	} else {
+		slog.Warn("output has no preferred mode; trying backend default",
+			"output", output.Name(), "error", err)
 	}
-	output.CommitState(state)
+	committed := output.TestState(state) && output.CommitState(state)
 	state.Finish()
+	if !committed {
+		slog.Error("output rejected its initial configuration; leaving output disabled",
+			"output", output.Name())
+		return
+	}
 	output.OnFrame(s.handleOutputFrame)
-	output.OnRequestState(func(o wlroots.Output, st wlroots.OutputState) { o.CommitState(st) })
+	output.OnRequestState(func(o wlroots.Output, st wlroots.OutputState) {
+		if !o.TestState(st) || !o.CommitState(st) {
+			slog.Warn("output configuration request rejected", "output", o.Name())
+			return
+		}
+		s.refreshOutputGeometry(s.outputStateFor(o))
+		s.arrangeLayers()
+	})
 	output.OnDestroy(s.handleOutputDestroy)
 	lo := s.outputLayout.AddOutputAuto(output)
 	so := s.scene.NewOutput(output)
 	s.sceneLayout.AddOutput(lo, so)
-	output.SetTitle(fmt.Sprintf("HatWM - %s", output.Name()))
-	s.outputs = append(s.outputs, output)
+	if err := output.SetTitle(fmt.Sprintf("HatWM - %s", output.Name())); err != nil {
+		slog.Warn("could not set output title", "output", output.Name(), "error", err)
+	}
+	outputState := &OutputState{
+		Output: output, LayoutOutput: lo, SceneOutput: so, CurrentWorkspace: 1,
+	}
+	s.outputs = append(s.outputs, outputState)
+	s.refreshOutputGeometry(outputState)
+	if s.activeOutput == nil {
+		s.activeOutput = outputState
+	}
+	for _, view := range s.views {
+		if view.Output == nil || view.Output == &s.fallbackOutput {
+			view.Output = outputState
+		}
+	}
+	for _, layer := range s.layerSurfaces {
+		if layer.output == nil || layer.output == &s.fallbackOutput {
+			layer.output = outputState
+			if C.hatwm_layer_surface_output(layer.ptr) == nil {
+				C.hatwm_layer_surface_set_output(layer.ptr,
+					(*C.struct_wlr_output)(outputPointer(output)))
+			}
+		}
+	}
 	if s.screencastPortal != nil {
 		C.hatwm_screencast_portal_add_output(s.screencastPortal,
 			(*C.struct_wlr_output)(outputPointer(output)))
@@ -376,28 +460,85 @@ func (s *Server) handleNewOutput(output wlroots.Output) {
 }
 
 func (s *Server) handleOutputFrame(output wlroots.Output) {
-	so, err := s.scene.SceneOutput(output)
-	if err != nil {
+	state := s.outputStateFor(output)
+	if state == nil {
 		return
 	}
-	s.renderOutput(output, so)
-	so.SendFrameDone(time.Now())
+	s.renderOutput(output, state.SceneOutput)
+	state.SceneOutput.SendFrameDone(time.Now())
 }
 
 func (s *Server) handleOutputDestroy(output wlroots.Output) {
+	if s.shuttingDown {
+		for i, candidate := range s.outputs {
+			if candidate.Output == output {
+				s.outputs = append(s.outputs[:i], s.outputs[i+1:]...)
+				break
+			}
+		}
+		return
+	}
 	if s.screencastPortal != nil {
 		C.hatwm_screencast_portal_remove_output(s.screencastPortal,
 			(*C.struct_wlr_output)(outputPointer(output)))
 	}
 	s.outputProtocolsRemove(output)
+	removed := s.outputStateFor(output)
 	for i, candidate := range s.outputs {
-		if candidate == output {
+		if candidate == removed {
 			s.outputs = append(s.outputs[:i], s.outputs[i+1:]...)
 			break
 		}
 	}
+	var fallback *OutputState
+	if len(s.outputs) > 0 {
+		fallback = s.outputs[0]
+	}
+	if removed != nil {
+		if removed.Fullscreen != nil {
+			setClientPresentationState(removed.Fullscreen, presentationNone)
+			removed.Fullscreen = nil
+			removed.FullscreenMode = presentationNone
+		}
+		for _, view := range s.views {
+			if view.Output == removed {
+				view.Output = fallback
+				view.FloatingValid = false
+			}
+		}
+		for _, layer := range s.layerSurfaces {
+			if layer.output == removed {
+				layer.output = fallback
+				if fallback != nil && C.hatwm_layer_surface_output(layer.ptr) == nil {
+					C.hatwm_layer_surface_set_output(layer.ptr,
+						(*C.struct_wlr_output)(outputPointer(fallback.Output)))
+				}
+			}
+		}
+	}
+	if s.activeOutput == removed {
+		s.activeOutput = fallback
+	}
+	if fallback != nil && fallback.Focused == nil {
+		fallback.Focused = s.focusedViewForOutput(fallback)
+	}
+	if fallback == nil {
+		slog.Warn("all outputs removed; HatWM will wait for an output to reconnect")
+	}
 	s.arrangeLayers()
 	s.updateSessionLockBackground()
+}
+
+func (s *Server) refreshOutputGeometry(state *OutputState) {
+	if state == nil {
+		return
+	}
+	x, y := s.outputLayout.Coords(state.Output)
+	width, height := state.Output.EffectiveResolution()
+	state.Full = usableBox{x: int(x), y: int(y), width: width, height: height}
+	if state.Usable.width <= 0 || state.Usable.height <= 0 {
+		state.Usable = state.Full
+	}
 }
 
 func (s *Server) spawn(command string) {
@@ -473,11 +614,32 @@ func (s *Server) reloadConfigIfChanged() {
 	if err != nil || !st.ModTime().After(s.configModTime) {
 		return
 	}
-	cfg, err := LoadConfig()
-	if err != nil {
+	if err := s.reloadConfig(); err != nil {
 		slog.Error("config reload failed", "error", err)
 		return
 	}
+	slog.Info("config reloaded")
+}
+
+func (s *Server) reloadConfig() error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	if err := s.applyConfig(cfg); err != nil {
+		return err
+	}
+	if path := GetConfigPath(); path != "" {
+		if st, err := os.Stat(path); err == nil {
+			s.configModTime = st.ModTime()
+		}
+	}
+	return nil
+}
+
+// applyConfig prepares every fallible resource before publishing the new
+// configuration. This keeps a failed reload from leaving s.config half-applied.
+func (s *Server) applyConfig(cfg Config) error {
 	oldWallpaper := s.config.Wallpaper
 	oldNotifications := s.config.Notifications
 	oldNotificationDaemon := s.config.NotificationDaemon
@@ -487,8 +649,35 @@ func (s *Server) reloadConfigIfChanged() {
 	oldCursorTheme := s.config.CursorTheme
 	oldCursorSize := s.config.CursorSize
 	oldConfig := s.config
+	keyboardChanged := oldKeyboardLayouts != strings.Join(cfg.KeyboardLayouts, ",") ||
+		oldKeyboardVariants != cfg.KeyboardVariants || oldKeyboardOptions != cfg.KeyboardOptions
+	if keyboardChanged {
+		if err := validateKeyboardLayouts(cfg); err != nil {
+			return err
+		}
+	}
+	inputChanged := inputConfigChanged(oldConfig, cfg)
+	var cursorManager wlroots.XCursorManager
+	if oldCursorTheme != cfg.CursorTheme || oldCursorSize != cfg.CursorSize {
+		var err error
+		cursorManager, err = createCursorManager(cfg.CursorTheme, cfg.CursorSize)
+		if err != nil {
+			return fmt.Errorf("load cursor theme: %w", err)
+		}
+	}
 	s.config = cfg
-	s.configModTime = st.ModTime()
+	if inputChanged {
+		for _, device := range s.inputDevices {
+			s.configureInputDevice(device)
+			if device.Type() == wlroots.InputDeviceTypeKeyboard {
+				device.Keyboard().SetRepeatInfo(
+					int32(cfg.KeyboardRepeatRate), int32(cfg.KeyboardRepeatDelay))
+			}
+		}
+	}
+	if xcursorManagerPointer(cursorManager) != nil {
+		s.installCursorManager(cursorManager)
+	}
 	s.reapplyWindowRules()
 	s.applyWindowOpacityToAll()
 	if oldWallpaper != cfg.Wallpaper {
@@ -497,18 +686,10 @@ func (s *Server) reloadConfigIfChanged() {
 	if oldNotifications != cfg.Notifications || oldNotificationDaemon != cfg.NotificationDaemon {
 		s.startNotificationDaemon()
 	}
-	if oldKeyboardLayouts != strings.Join(cfg.KeyboardLayouts, ",") ||
-		oldKeyboardVariants != cfg.KeyboardVariants || oldKeyboardOptions != cfg.KeyboardOptions {
+	if keyboardChanged {
 		s.keyboardLayoutIndex = 0
 		for _, keyboard := range s.keyboards {
 			s.configureKeyboardLayouts(keyboard.Device.Keyboard())
-		}
-	}
-	if oldCursorTheme != cfg.CursorTheme || oldCursorSize != cfg.CursorSize {
-		if err := s.configureCursorTheme(cfg.CursorTheme, cfg.CursorSize); err != nil {
-			slog.Error("cursor theme reload failed", "error", err)
-			s.config.CursorTheme = oldCursorTheme
-			s.config.CursorSize = oldCursorSize
 		}
 	}
 	if appearanceChanged(oldConfig, s.config) {
@@ -517,5 +698,5 @@ func (s *Server) reloadConfigIfChanged() {
 	}
 	s.updateAllDecorations()
 	s.arrange()
-	slog.Info("config reloaded")
+	return nil
 }

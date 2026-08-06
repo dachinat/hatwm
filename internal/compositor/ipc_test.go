@@ -54,11 +54,11 @@ func TestIPCResponseHelpers(t *testing.T) {
 	}
 }
 
-func TestIPCOutputFallsBackToUsableAreaWithoutOutputs(t *testing.T) {
-	server := &Server{usable: usableBox{x: 12, y: 34, width: 900, height: 700}}
+func TestIPCOutputDoesNotAdvertiseSyntheticFallbackOutput(t *testing.T) {
+	server := &Server{}
+	server.fallbackOutput.Usable = usableBox{x: 12, y: 34, width: 900, height: 700}
 	got := server.ipcOutput()
-	if got.X != 0 || got.Y != 0 || got.Width != 0 || got.Height != 0 ||
-		got.UsableX != 12 || got.UsableY != 34 || got.UsableWidth != 900 || got.UsableHeight != 700 {
+	if got != (IPCOutput{}) {
 		t.Fatalf("unexpected output state: %+v", got)
 	}
 }
@@ -77,7 +77,8 @@ func TestIPCHandshake(t *testing.T) {
 		Type: "HeLLo", ID: "hello-1", ProtocolVersion: ipcProtocolVersion,
 	})
 	if response.Success == nil || !*response.Success || response.ProtocolVersion != ipcProtocolVersion ||
-		response.Server != "HatWM" || len(response.Capabilities) == 0 {
+		response.Server != "HatWM" || response.ServerVersion != Version ||
+		len(response.Capabilities) == 0 {
 		t.Fatalf("invalid handshake response: %+v", response)
 	}
 }

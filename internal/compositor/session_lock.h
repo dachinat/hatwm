@@ -19,6 +19,8 @@ void hatwm_session_lock_manager_destroy(
 void hatwm_session_lock_send_locked(struct wlr_session_lock_v1 *lock);
 struct wlr_surface *hatwm_session_lock_surface_surface(
     struct wlr_session_lock_surface_v1 *surface);
+struct wlr_output *hatwm_session_lock_surface_output(
+    struct wlr_session_lock_surface_v1 *surface);
 struct wlr_scene_tree *hatwm_session_lock_surface_create_scene(
     struct wlr_session_lock_surface_v1 *surface,
     struct wlr_scene_tree *parent,

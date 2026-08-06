@@ -49,6 +49,51 @@ func TestCursorThemeSettings(t *testing.T) {
 	}
 }
 
+func TestValidateKeyboardLayouts(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.KeyboardLayouts = []string{"us", "ge"}
+	if err := validateKeyboardLayouts(cfg); err != nil {
+		t.Fatalf("valid keyboard layouts rejected: %v", err)
+	}
+	cfg.KeyboardLayouts = []string{"definitely-not-an-xkb-layout"}
+	if err := validateKeyboardLayouts(cfg); err == nil {
+		t.Fatal("invalid keyboard layout was accepted")
+	}
+}
+
+func TestInputSettings(t *testing.T) {
+	cfg := defaultConfig()
+	parseSetting(&cfg, "keyboard_repeat_rate", "40")
+	parseSetting(&cfg, "keyboard_repeat_delay", "350")
+	parseSetting(&cfg, "touchpad_tap_to_click", "false")
+	parseSetting(&cfg, "pointer_natural_scroll", "true")
+	parseSetting(&cfg, "pointer_accel_speed", "-0.35")
+	parseSetting(&cfg, "pointer_accel_profile", "flat")
+	parseSetting(&cfg, "pointer_left_handed", "true")
+	parseSetting(&cfg, "touchpad_scroll_method", "edge")
+	parseSetting(&cfg, "touchpad_disable_while_typing", "false")
+	if cfg.KeyboardRepeatRate != 40 || cfg.KeyboardRepeatDelay != 350 ||
+		cfg.TouchpadTapToClick || !cfg.PointerNaturalScroll ||
+		cfg.PointerAccelSpeed != -0.35 || cfg.PointerAccelProfile != "flat" ||
+		!cfg.PointerLeftHanded || cfg.TouchpadScrollMethod != "edge" ||
+		cfg.TouchpadDisableWhileTyping {
+		t.Fatalf("input settings were not parsed: %+v", cfg)
+	}
+}
+
+func TestInputSettingsRejectInvalidRangesAndEnums(t *testing.T) {
+	cfg := defaultConfig()
+	before := cfg
+	parseSetting(&cfg, "keyboard_repeat_rate", "1001")
+	parseSetting(&cfg, "keyboard_repeat_delay", "-1")
+	parseSetting(&cfg, "pointer_accel_speed", "1.1")
+	parseSetting(&cfg, "pointer_accel_profile", "fastest")
+	parseSetting(&cfg, "touchpad_scroll_method", "circular")
+	if inputConfigChanged(before, cfg) {
+		t.Fatalf("invalid input settings changed config: %+v", cfg)
+	}
+}
+
 func TestAppearanceSettings(t *testing.T) {
 	cfg := defaultConfig()
 	parseAppearanceSetting(&cfg, "color_scheme", "dark")

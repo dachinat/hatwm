@@ -65,9 +65,16 @@ func (s *Server) handleNewXWaylandSurface(
 		return
 	}
 	managed := !bool(C.hatwm_xwayland_surface_override_redirect(ptr))
-	root := s.normalTree.NewSceneTree()
+	parent := s.tiledTree
+	layer := viewSceneLayerTiled
+	if !managed {
+		parent = s.floatingTree
+		layer = viewSceneLayerFloating
+	}
+	root := parent.NewSceneTree()
 	root.Node().SetEnabled(false)
 	s.nextViewID++
+	output := s.currentOutputState()
 	view := &View{
 		ID:         s.nextViewID,
 		XWayland:   unsafe.Pointer(ptr),
@@ -75,7 +82,9 @@ func (s *Server) handleNewXWaylandSurface(
 		Managed:    managed,
 		RootTree:   root,
 		Server:     s,
-		Workspace:  s.currentWorkspace,
+		Workspace:  output.CurrentWorkspace,
+		Output:     output,
+		SceneLayer: layer,
 	}
 	s.views = append(s.views, view)
 	view.refreshWindowIdentity()
@@ -142,12 +151,13 @@ func (s *Server) handleXWaylandMap(
 	view.Mapped = true
 	view.refreshWindowIdentity()
 	s.applyWindowRules(view, true)
+	s.syncViewSceneLayer(view)
 	view.Animation = ViewAnimation{}
 	view.invalidateXWaylandRoundedClip()
 	s.raiseDecoration(view)
 	s.applyWindowOpacity(view)
 	view.RootTree.Node().SetEnabled(
-		view.Workspace == s.currentWorkspace)
+		s.viewVisible(view))
 
 	if !view.Managed {
 		x := int(C.hatwm_xwayland_surface_x(ptr))
@@ -220,7 +230,7 @@ func (s *Server) handleXWaylandCommit(
 		view.RootTree.Node().SetPosition(float64(x), float64(y))
 		return
 	}
-	if s.isFloatingView(view) && s.fullscreen != view {
+	if s.isFloatingView(view) && !s.viewFullscreen(view) {
 		s.rememberFloatingGeometry(view)
 	}
 	s.updateDecoration(view)

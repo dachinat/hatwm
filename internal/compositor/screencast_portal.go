@@ -35,9 +35,9 @@ func (s *Server) startScreenCastPortal() error {
 	if s.screencastPortal == nil {
 		return fmt.Errorf("failed to start HatWM ScreenCast portal backend")
 	}
-	for _, output := range s.outputs {
+	for _, state := range s.outputs {
 		C.hatwm_screencast_portal_add_output(s.screencastPortal,
-			(*C.struct_wlr_output)(outputPointer(output)))
+			(*C.struct_wlr_output)(outputPointer(state.Output)))
 	}
 	s.updatePortalAppearance()
 	return nil

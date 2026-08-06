@@ -134,22 +134,11 @@ func (s *Server) viewBorderRounding(v *View) int {
 }
 
 func (s *Server) viewArea(v *View) usableBox {
-	if v == nil || !v.RuleActions.HasOutput || v.RuleActions.Output == "" {
-		return s.usable
+	output := s.ensureViewOutput(v)
+	if output.Usable.width > 0 && output.Usable.height > 0 {
+		return output.Usable
 	}
-	name := strings.TrimSpace(v.RuleActions.Output)
-	for i, output := range s.outputs {
-		if !strings.EqualFold(output.Name(), name) {
-			continue
-		}
-		if i == 0 {
-			return s.usable
-		}
-		x, y := s.outputLayout.Coords(output)
-		width, height := output.EffectiveResolution()
-		return usableBox{x: int(x), y: int(y), width: width, height: height}
-	}
-	return s.usable
+	return output.Full
 }
 
 func (s *Server) applyRuleGeometry(v *View) {
@@ -203,24 +192,30 @@ func (s *Server) applyWindowRules(v *View, initial bool) {
 	}
 	v.refreshWindowIdentity()
 	oldActions, oldMatches := v.RuleActions, v.MatchedRules
+	oldAutoFloating := v.AutoFloating
+	oldOutput := s.ensureViewOutput(v)
 	actions, matches := s.resolveWindowRules(v)
-	if !initial && actions == oldActions && matches == oldMatches {
-		return
-	}
 	v.RuleActions, v.MatchedRules = actions, matches
 	v.AutoFloating = v.shouldAutoFloat()
+	s.syncViewSceneLayer(v)
+	// Dialog/modal metadata can change without changing the matched rules. Its
+	// derived floating state still needs to move between scene layers.
+	if !initial && actions == oldActions && matches == oldMatches &&
+		oldAutoFloating == v.AutoFloating {
+		return
+	}
 	if actions.HasWorkspace && s.validWorkspace(actions.Workspace) {
 		v.Workspace = actions.Workspace
 	}
 	if actions.HasOutput {
-		found := false
-		for _, output := range s.outputs {
-			if strings.EqualFold(output.Name(), actions.Output) {
-				found = true
-				break
+		if output := s.outputStateByName(actions.Output); output != nil {
+			if oldOutput.Fullscreen == v && oldOutput != output {
+				setClientPresentationState(v, presentationNone)
+				oldOutput.Fullscreen = nil
+				oldOutput.FullscreenMode = presentationNone
 			}
-		}
-		if !found && len(s.outputs) > 0 {
+			v.Output = output
+		} else if len(s.outputs) > 0 {
 			slog.Warn("window rule refers to unknown output",
 				"rules", matches, "output", actions.Output)
 		}
@@ -232,15 +227,16 @@ func (s *Server) applyWindowRules(v *View, initial bool) {
 	}
 	fullscreenChanged := initial || actions.Fullscreen != oldActions.Fullscreen ||
 		actions.HasFullscreen != oldActions.HasFullscreen
-	if v.Workspace == s.currentWorkspace && fullscreenChanged {
+	output := s.ensureViewOutput(v)
+	if v.Workspace == output.CurrentWorkspace && fullscreenChanged {
 		if actions.HasFullscreen {
 			s.setViewFullscreen(v, actions.Fullscreen)
 		} else if oldActions.HasFullscreen && oldActions.Fullscreen &&
-			s.fullscreen == v && s.fullscreenMode == presentationFullscreen {
+			output.Fullscreen == v && output.FullscreenMode == presentationFullscreen {
 			s.setViewFullscreen(v, false)
 		}
 	}
-	v.RootTree.Node().SetEnabled(v.Workspace == s.currentWorkspace)
+	v.RootTree.Node().SetEnabled(s.viewVisible(v))
 	s.updateDecoration(v)
 	if v.shouldKeepAbove() {
 		v.RootTree.Node().RaiseToTop()
@@ -248,8 +244,10 @@ func (s *Server) applyWindowRules(v *View, initial bool) {
 }
 
 func (s *Server) applyRuleFullscreenForCurrentWorkspace() {
+	output := s.currentOutputState()
 	for _, v := range s.views {
-		if v.Managed && v.Mapped && v.Workspace == s.currentWorkspace &&
+		if v.Managed && v.Mapped && v.Output == output &&
+			v.Workspace == output.CurrentWorkspace &&
 			v.RuleActions.HasFullscreen && v.RuleActions.Fullscreen {
 			s.setViewFullscreen(v, true)
 			return

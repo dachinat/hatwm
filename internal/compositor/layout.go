@@ -8,18 +8,23 @@ func (s *Server) arrange() {
 	s.arrangeLayers()
 }
 
-func (s *Server) arrangeViewsIn(area usableBox) {
-	if len(s.outputs) == 0 {
+func (s *Server) arrangeViewsIn(output *OutputState, area usableBox) {
+	if output == nil {
 		return
 	}
 	for _, v := range s.views {
-		v.RootTree.Node().SetEnabled(v.Mapped && v.Workspace == s.currentWorkspace)
+		s.syncViewSceneLayer(v)
+		v.RootTree.Node().SetEnabled(s.viewVisible(v))
 	}
-	views := s.mappedViews()
+	// Reparenting appends a node to its new layer. Restore the focused view to
+	// the top of that layer so a layout-mode change preserves focus ordering.
+	if focused := s.focusedView(); focused != nil {
+		focused.RootTree.Node().RaiseToTop()
+	}
+	views := s.mappedViewsForOutput(output)
 	if len(views) == 0 {
 		return
 	}
-	defer s.keepAutoFloatingViewsAboveTiles()
 	outW, outH := area.width, area.height
 	ux, uy := area.x, area.y
 	gap := s.config.Gaps
@@ -30,18 +35,18 @@ func (s *Server) arrangeViewsIn(area usableBox) {
 	for _, v := range views {
 		v.RootTree.Node().SetEnabled(true)
 	}
-	if s.fullscreen != nil && s.fullscreen.Mapped {
+	if output.Fullscreen != nil && output.Fullscreen.Mapped {
 		for _, v := range views {
-			v.RootTree.Node().SetEnabled(v == s.fullscreen)
+			v.RootTree.Node().SetEnabled(v == output.Fullscreen)
 		}
-		fullscreenArea := s.viewArea(s.fullscreen)
-		s.setViewPosition(s.fullscreen,
+		fullscreenArea := s.viewArea(output.Fullscreen)
+		s.setViewPosition(output.Fullscreen,
 			float64(fullscreenArea.x), float64(fullscreenArea.y))
-		s.fullscreen.setTiledContentSize(
+		output.Fullscreen.setTiledContentSize(
 			uint32(fullscreenArea.width), uint32(fullscreenArea.height))
-		s.fullscreen.setSize(
+		output.Fullscreen.setSize(
 			uint32(fullscreenArea.width), uint32(fullscreenArea.height))
-		s.updateDecoration(s.fullscreen)
+		s.updateDecoration(output.Fullscreen)
 		return
 	}
 
@@ -259,16 +264,18 @@ func balancedGridTilesWithRows(area usableBox, count, gap, rows int) []usableBox
 }
 
 func (s *Server) cascadeFloating() {
-	for i, v := range s.mappedViews() {
-		if s.fullscreen == v {
-			continue
+	for _, output := range s.outputs {
+		for i, v := range s.mappedViewsForOutput(output) {
+			if output.Fullscreen == v {
+				continue
+			}
+			s.placeFloatingView(v, i)
 		}
-		s.placeFloatingView(v, i)
 	}
 }
 
 func (s *Server) placeFloatingView(v *View, index int) {
-	if v == nil || !v.Mapped || s.fullscreen == v {
+	if v == nil || !v.Mapped || s.viewFullscreen(v) {
 		return
 	}
 	wasTiled := v.TileWidth > 0 && v.TileHeight > 0
@@ -297,7 +304,7 @@ func (s *Server) placeFloatingView(v *View, index int) {
 		if parent := s.parentView(v); parent != nil {
 			parentGeometry := parent.geometry()
 			parentBorder := s.viewBorderSize(parent)
-			if s.fullscreen == parent {
+			if s.viewFullscreen(parent) {
 				parentBorder = 0
 			}
 			centerX = parent.RootTree.Node().X() + (parentGeometry.Width+2*parentBorder)/2
@@ -328,7 +335,7 @@ func (s *Server) placeFloatingView(v *View, index int) {
 }
 
 func (s *Server) rememberFloatingGeometry(v *View) {
-	if v == nil || !s.isFloatingView(v) || s.fullscreen == v {
+	if v == nil || !s.isFloatingView(v) || s.viewFullscreen(v) {
 		return
 	}
 	geometry := v.geometry()
@@ -455,8 +462,9 @@ func (s *Server) toggleFullscreen() {
 	if v == nil {
 		return
 	}
-	if s.fullscreen == v {
-		s.setViewPresentation(v, false, s.fullscreenMode)
+	output := s.ensureViewOutput(v)
+	if output.Fullscreen == v {
+		s.setViewPresentation(v, false, output.FullscreenMode)
 		return
 	}
 	s.setViewFullscreen(v, true)
@@ -470,7 +478,8 @@ func (s *Server) handleViewMaximizeRequest(v *View, requested bool) {
 	if v == nil || !v.Mapped {
 		return
 	}
-	if s.fullscreen == v && s.fullscreenMode == presentationMaximizedFullscreen {
+	output := s.ensureViewOutput(v)
+	if output.Fullscreen == v && output.FullscreenMode == presentationMaximizedFullscreen {
 		s.setViewPresentation(v, false, presentationMaximizedFullscreen)
 		return
 	}
@@ -478,8 +487,8 @@ func (s *Server) handleViewMaximizeRequest(v *View, requested bool) {
 		s.setViewPresentation(v, true, presentationMaximizedFullscreen)
 		return
 	}
-	if s.fullscreen == v {
-		setClientPresentationState(v, s.fullscreenMode)
+	if output.Fullscreen == v {
+		setClientPresentationState(v, output.FullscreenMode)
 	} else {
 		setClientPresentationState(v, presentationNone)
 	}
@@ -490,20 +499,21 @@ func (s *Server) setViewPresentation(
 	if v == nil || !v.Mapped {
 		return
 	}
+	output := s.ensureViewOutput(v)
 
 	if !enabled {
-		if s.fullscreen != v || s.fullscreenMode != mode {
+		if output.Fullscreen != v || output.FullscreenMode != mode {
 			// A maximize and a fullscreen request are independent. Refusing one
 			// must not clear the other state if it still owns the presentation.
-			if s.fullscreen == v {
-				setClientPresentationState(v, s.fullscreenMode)
+			if output.Fullscreen == v {
+				setClientPresentationState(v, output.FullscreenMode)
 			} else {
 				setClientPresentationState(v, presentationNone)
 			}
 			return
 		}
-		s.fullscreen = nil
-		s.fullscreenMode = presentationNone
+		output.Fullscreen = nil
+		output.FullscreenMode = presentationNone
 		setClientPresentationState(v, presentationNone)
 		if s.isFloatingView(v) {
 			s.setViewPosition(v, v.Saved.X, v.Saved.Y)
@@ -515,14 +525,14 @@ func (s *Server) setViewPresentation(
 		return
 	}
 
-	if s.fullscreen == v {
-		s.fullscreenMode = mode
+	if output.Fullscreen == v {
+		output.FullscreenMode = mode
 		setClientPresentationState(v, mode)
 		return
 	}
 
-	if s.fullscreen != nil {
-		old := s.fullscreen
+	if output.Fullscreen != nil {
+		old := output.Fullscreen
 		setClientPresentationState(old, presentationNone)
 		if s.isFloatingView(old) {
 			s.setViewPosition(old, old.Saved.X, old.Saved.Y)
@@ -537,8 +547,8 @@ func (s *Server) setViewPresentation(
 		Width:  uint32(g.Width),
 		Height: uint32(g.Height),
 	}
-	s.fullscreen = v
-	s.fullscreenMode = mode
+	output.Fullscreen = v
+	output.FullscreenMode = mode
 	setClientPresentationState(v, mode)
 	s.arrange()
 	s.updateAllDecorations()

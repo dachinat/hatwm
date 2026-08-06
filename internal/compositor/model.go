@@ -21,6 +21,13 @@ type Geometry struct {
 	Width, Height uint32
 }
 
+type viewSceneLayer uint8
+
+const (
+	viewSceneLayerTiled viewSceneLayer = iota
+	viewSceneLayerFloating
+)
+
 // View is the single owner record for either an XDG toplevel or an XWayland
 // window. We never key views by wrapper addresses and never retain pointers to
 // temporary Go wrapper copies.
@@ -35,6 +42,7 @@ type View struct {
 
 	RootTree    wlroots.SceneTree
 	SurfaceTree wlroots.SceneTree
+	SceneLayer  viewSceneLayer
 	Decor       WindowDecoration
 	TileWidth   int
 	TileHeight  int
@@ -51,6 +59,7 @@ type View struct {
 	RuleActions      WindowRuleActions
 	MatchedRules     string
 	Workspace        int
+	Output           *OutputState
 	Saved            Geometry
 	Floating         Geometry
 	FloatingValid    bool

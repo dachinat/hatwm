@@ -211,7 +211,7 @@ func (v *View) targetRootPosition() (float64, float64) {
 
 func (v *View) surfaceOffset() int {
 	if v == nil || !v.Managed || v.Server == nil ||
-		v.Server.fullscreen == v {
+		v.Server.viewFullscreen(v) {
 		return 0
 	}
 	if border := v.Server.viewBorderSize(v); border > 0 {

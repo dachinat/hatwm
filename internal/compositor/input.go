@@ -21,13 +21,49 @@ import (
 )
 
 func (s *Server) handleNewInput(dev wlroots.InputDevice) {
+	s.inputDevices = append(s.inputDevices, dev)
+	dev.OnDestroy(s.handleInputDestroy)
+	s.configureInputDevice(dev)
 	switch dev.Type() {
 	case wlroots.InputDeviceTypePointer:
 		s.cursor.AttachInputDevice(dev)
 	case wlroots.InputDeviceTypeKeyboard:
 		s.handleNewKeyboard(dev)
 	}
-	caps := wlroots.SeatCapabilityPointer
+	s.updateSeatCapabilities()
+}
+
+func (s *Server) handleInputDestroy(dev wlroots.InputDevice) {
+	if s.grabbedView != nil {
+		s.cancelViewGrab()
+	}
+	if dev.Type() == wlroots.InputDeviceTypePointer {
+		s.cursor.DetachInputDevice(dev)
+	}
+	for i, candidate := range s.inputDevices {
+		if candidate == dev {
+			s.inputDevices = append(s.inputDevices[:i], s.inputDevices[i+1:]...)
+			break
+		}
+	}
+	if dev.Type() == wlroots.InputDeviceTypeKeyboard {
+		for i, keyboard := range s.keyboards {
+			if keyboard.Device == dev {
+				s.keyboards = append(s.keyboards[:i], s.keyboards[i+1:]...)
+				break
+			}
+		}
+	}
+	s.updateSeatCapabilities()
+}
+
+func (s *Server) updateSeatCapabilities() {
+	var caps wlroots.SeatCapability
+	for _, device := range s.inputDevices {
+		if device.Type() == wlroots.InputDeviceTypePointer {
+			caps |= wlroots.SeatCapabilityPointer
+		}
+	}
 	if len(s.keyboards) > 0 {
 		caps |= wlroots.SeatCapabilityKeyboard
 	}
@@ -45,7 +81,7 @@ func (s *Server) handleNewKeyboard(dev wlroots.InputDevice) {
 		keymap.Destroy()
 		ctx.Destroy()
 	}
-	kb.SetRepeatInfo(25, 600)
+	kb.SetRepeatInfo(int32(s.config.KeyboardRepeatRate), int32(s.config.KeyboardRepeatDelay))
 	kb.OnModifiers(func(k wlroots.Keyboard) {
 		s.keyboardModifiers = k.Modifiers()
 		s.seat.SetKeyboard(dev)
@@ -280,6 +316,9 @@ func (s *Server) handleCursorMotionAbsolute(dev wlroots.InputDevice, time uint32
 }
 
 func (s *Server) processCursorMotion(time uint32) {
+	if output := s.outputStateAt(s.cursor.X(), s.cursor.Y()); output != nil {
+		s.activeOutput = output
+	}
 	if s.cursorMode == CursorMove {
 		s.processCursorMove()
 		return
@@ -318,6 +357,8 @@ func (s *Server) processCursorMotion(time uint32) {
 }
 func (s *Server) processCursorMove() {
 	if s.grabbedView != nil {
+		s.moveViewToOutput(s.grabbedView,
+			s.outputStateAt(s.cursor.X(), s.cursor.Y()))
 		s.setFloatingPosition(
 			s.grabbedView, s.cursor.X()-s.grabX, s.cursor.Y()-s.grabY)
 	}
@@ -426,6 +467,9 @@ func (s *Server) handleCursorButton(_ wlroots.InputDevice, time uint32, button u
 	)
 
 	if state == wlroots.ButtonStatePressed {
+		if output := s.outputStateAt(s.cursor.X(), s.cursor.Y()); output != nil {
+			s.activeOutput = output
+		}
 		s.cursorButtonCount++
 		v, surface, _, _ := s.viewAt(s.cursor.X(), s.cursor.Y())
 		if v != nil {
@@ -438,7 +482,7 @@ func (s *Server) handleCursorButton(_ wlroots.InputDevice, time uint32, button u
 			// Mod4 + left drag is compositor-owned movement. In tiling mode,
 			// crossing another tile swaps their layout positions. In floating
 			// mode, the view follows the pointer directly.
-			if button == buttonLeft && s.keyboardModifiers&wlroots.KeyboardModifierLogo != 0 && s.fullscreen != v {
+			if button == buttonLeft && s.keyboardModifiers&wlroots.KeyboardModifierLogo != 0 && !s.viewFullscreen(v) {
 				s.grabbedView = v
 				s.grabOwnsButton = true
 				s.grabX = s.cursor.X() - float64(v.RootTree.Node().X())
@@ -455,7 +499,7 @@ func (s *Server) handleCursorButton(_ wlroots.InputDevice, time uint32, button u
 			// Mod4 + right drag is compositor-owned resizing. Tiled layouts
 			// adjust the master/stack split; floating views resize from the
 			// corner nearest the initial pointer position.
-			if button == buttonRight && s.keyboardModifiers&wlroots.KeyboardModifierLogo != 0 && s.fullscreen != v {
+			if button == buttonRight && s.keyboardModifiers&wlroots.KeyboardModifierLogo != 0 && !s.viewFullscreen(v) {
 				s.grabbedView = v
 				s.grabOwnsButton = true
 				if !s.isFloatingView(v) {
@@ -524,7 +568,7 @@ func (s *Server) handleCursorFrame() { s.seat.NotifyPointerFrame() }
 
 func (s *Server) moveFocused(direction string) bool {
 	v := s.focusedView()
-	if v == nil || s.fullscreen == v {
+	if v == nil || s.viewFullscreen(v) {
 		return true
 	}
 
@@ -638,6 +682,9 @@ func (s *Server) processTilingDrag() {
 	if v == nil || !s.config.Tiling {
 		return
 	}
+	if s.moveViewToOutput(v, s.outputStateAt(s.cursor.X(), s.cursor.Y())) {
+		return
+	}
 
 	// Determine the tile under the pointer from layout geometry rather than
 	// scene hit-testing: the grabbed view may be raised above its neighbors.
@@ -697,10 +744,10 @@ func (s *Server) beginPointerResize(v *View) {
 }
 
 func (s *Server) processTilingResize() {
-	if !s.config.Tiling || len(s.mappedTiledViews()) < 2 || s.fullscreen != nil {
+	if !s.config.Tiling || len(s.mappedTiledViews()) < 2 || s.currentOutputState().Fullscreen != nil {
 		return
 	}
-	area := s.usable
+	area := s.currentOutputState().Usable
 	if area.width <= 0 || area.height <= 0 {
 		return
 	}
@@ -725,6 +772,24 @@ func (s *Server) processTilingResize() {
 
 func keyboardPointer(keyboard wlroots.Keyboard) unsafe.Pointer {
 	return *(*unsafe.Pointer)(unsafe.Pointer(&keyboard))
+}
+
+func validateKeyboardLayouts(cfg Config) error {
+	layouts := strings.Join(cfg.KeyboardLayouts, ",")
+	if layouts == "" {
+		layouts = "us"
+	}
+	cLayouts := C.CString(layouts)
+	cVariants := C.CString(cfg.KeyboardVariants)
+	cOptions := C.CString(cfg.KeyboardOptions)
+	defer C.free(unsafe.Pointer(cLayouts))
+	defer C.free(unsafe.Pointer(cVariants))
+	defer C.free(unsafe.Pointer(cOptions))
+	if !bool(C.hatwm_keyboard_layouts_valid(cLayouts, cVariants, cOptions)) {
+		return fmt.Errorf("could not compile XKB layouts %q (variants %q, options %q)",
+			layouts, cfg.KeyboardVariants, cfg.KeyboardOptions)
+	}
+	return nil
 }
 
 func (s *Server) configureKeyboardLayouts(keyboard wlroots.Keyboard) bool {

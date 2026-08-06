@@ -75,6 +75,21 @@ func TestOutputRuleImpliesFloatingPlacement(t *testing.T) {
 	}
 }
 
+func TestApplyWindowRulesRefreshesDerivedDialogFloatingState(t *testing.T) {
+	server := &Server{config: Config{Tiling: true}}
+	view := &View{Managed: true, Dialog: true}
+	server.applyWindowRules(view, false)
+	if !view.AutoFloating {
+		t.Fatal("dialog metadata did not update the derived floating state")
+	}
+
+	view.Dialog = false
+	server.applyWindowRules(view, false)
+	if view.AutoFloating {
+		t.Fatal("cleared dialog metadata left the view floating")
+	}
+}
+
 func TestWindowRuleParserRejectsInvalidValues(t *testing.T) {
 	for key, value := range map[string]string{
 		"opacity": "1.5", "workspace": "0", "size": "800",

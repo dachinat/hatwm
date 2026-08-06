@@ -4,10 +4,11 @@ import "github.com/swaywm/go-wlroots/wlroots"
 
 func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 	setSupportedToplevelCapabilities(top)
-	root := s.normalTree.NewSceneTree()
+	root := s.tiledTree.NewSceneTree()
 	surfaceTree := root.NewXDGSurface(top.Base())
 	clientSurface := top.Base().Surface()
 	s.nextViewID++
+	output := s.currentOutputState()
 	v := &View{
 		ID:            s.nextViewID,
 		TopLevel:      top,
@@ -17,7 +18,9 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 		RootTree:      root,
 		SurfaceTree:   surfaceTree,
 		Server:        s,
-		Workspace:     s.currentWorkspace,
+		Workspace:     output.CurrentWorkspace,
+		Output:        output,
+		SceneLayer:    viewSceneLayerTiled,
 	}
 	root.Node().SetEnabled(false)
 	s.views = append(s.views, v)
@@ -30,10 +33,15 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 		s.notifyFractionalScale(clientSurface)
 		v.Mapped = true
 		s.updateXDGDialogState(v)
+		if parent := s.parentView(v); parent != nil {
+			v.Output = parent.Output
+			v.Workspace = parent.Workspace
+		}
 		s.applyWindowRules(v, true)
+		s.syncViewSceneLayer(v)
 		v.Animation = ViewAnimation{}
 		s.applyWindowOpacity(v)
-		v.RootTree.Node().SetEnabled(v.Workspace == s.currentWorkspace)
+		v.RootTree.Node().SetEnabled(s.viewVisible(v))
 		// Tile order is independent from focus order. New windows retain the
 		// existing behavior of becoming the master tile, but later focus
 		// changes must not silently rearrange the layout.
@@ -72,7 +80,7 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 			wasAutoFloating := v.AutoFloating
 			oldWorkspace := v.Workspace
 			s.applyWindowRules(v, false)
-			if s.isFloatingView(v) && s.fullscreen != v {
+			if s.isFloatingView(v) && !s.viewFullscreen(v) {
 				s.rememberFloatingGeometry(v)
 			}
 			s.updateDecoration(v)
@@ -113,7 +121,7 @@ func (s *Server) handleNewXDGPopup(p wlroots.XDGPopup) {
 		return
 	}
 
-	tree := s.normalTree
+	tree := s.floatingTree
 	if parent.Type() == wlroots.SurfaceTypeXDG {
 		tree = parent.XDGSurface().SceneTree()
 	}
@@ -138,9 +146,14 @@ func (s *Server) removeView(target *View) {
 	}
 }
 func (s *Server) mappedViews() []*View {
+	return s.mappedViewsForOutput(s.currentOutputState())
+}
+
+func (s *Server) mappedViewsForOutput(output *OutputState) []*View {
 	out := make([]*View, 0, len(s.views))
 	for _, v := range s.views {
-		if v.Managed && v.Mapped && v.Workspace == s.currentWorkspace {
+		if v.Managed && v.Mapped && s.ensureViewOutput(v) == output &&
+			v.Workspace == output.CurrentWorkspace {
 			out = append(out, v)
 		}
 	}
@@ -161,34 +174,27 @@ func (s *Server) isFloatingView(v *View) bool {
 	return v != nil && (!s.config.Tiling || v.AutoFloating)
 }
 
-// keepAutoFloatingViewsAboveTiles maintains a floating sub-layer inside the
-// normal window tree. Raising a tiled window for focus must not cover dialogs;
-// the focused dialog, when there is one, remains the uppermost dialog.
-func (s *Server) keepAutoFloatingViewsAboveTiles() {
-	if !s.config.Tiling {
+func (s *Server) desiredViewSceneLayer(v *View) viewSceneLayer {
+	if v == nil || !v.Managed || s.isFloatingView(v) || v.shouldKeepAbove() {
+		return viewSceneLayerFloating
+	}
+	return viewSceneLayerTiled
+}
+
+func (s *Server) syncViewSceneLayer(v *View) {
+	if v == nil || v.RootTree.Nil() {
 		return
 	}
-	focused := s.focusedView()
-	// Non-modal floating windows stay above tiles, while explicit modal
-	// dialogs form the uppermost part of the normal-window stack.
-	for _, v := range s.views {
-		if v != focused && v.Managed && v.Mapped && v.shouldKeepAbove() && !v.Modal &&
-			v.Workspace == s.currentWorkspace {
-			v.RootTree.Node().RaiseToTop()
-		}
+	desired := s.desiredViewSceneLayer(v)
+	if v.SceneLayer == desired {
+		return
 	}
-	if focused != nil && focused.shouldKeepAbove() && !focused.Modal {
-		focused.RootTree.Node().RaiseToTop()
+	parent := s.tiledTree
+	if desired == viewSceneLayerFloating {
+		parent = s.floatingTree
 	}
-	for _, v := range s.views {
-		if v != focused && v.Managed && v.Mapped && v.shouldKeepAbove() && v.Modal &&
-			v.Workspace == s.currentWorkspace {
-			v.RootTree.Node().RaiseToTop()
-		}
-	}
-	if focused != nil && focused.shouldKeepAbove() && focused.Modal {
-		focused.RootTree.Node().RaiseToTop()
-	}
+	v.RootTree.Node().Reparent(parent)
+	v.SceneLayer = desired
 }
 
 func shouldAutoFloatXDG(
@@ -242,12 +248,16 @@ func (s *Server) parentView(v *View) *View {
 	return nil
 }
 func (s *Server) focusedView() *View {
+	if output := s.currentOutputState(); output.Focused != nil &&
+		s.viewVisible(output.Focused) {
+		return output.Focused
+	}
 	surf := s.seat.KeyboardState().FocusedSurface()
 	if surf.Nil() {
 		return nil
 	}
 	for _, v := range s.views {
-		if v.Mapped && v.Workspace == s.currentWorkspace &&
+		if s.viewVisible(v) &&
 			v.clientSurface() == surf {
 			return v
 		}
@@ -256,7 +266,7 @@ func (s *Server) focusedView() *View {
 }
 
 func (s *Server) focusView(v *View, surface *wlroots.Surface) {
-	if s.sessionLocked || v == nil || !v.Mapped || v.Workspace != s.currentWorkspace {
+	if s.sessionLocked || v == nil || !s.viewVisible(v) {
 		return
 	}
 	if exclusive := s.exclusiveKeyboardLayer(); exclusive != nil {
@@ -265,6 +275,9 @@ func (s *Server) focusView(v *View, surface *wlroots.Surface) {
 	}
 	s.setViewUrgent(v, false)
 	prev := s.focusedView()
+	s.activeOutput = s.ensureViewOutput(v)
+	s.rememberOutputFocus(s.activeOutput, v)
+	s.activeOutput.Focused = v
 	if prev == v {
 		return
 	}
@@ -278,8 +291,9 @@ func (s *Server) focusView(v *View, surface *wlroots.Surface) {
 	if clientSurface.Nil() {
 		return
 	}
-	s.seat.NotifyKeyboardEnter(clientSurface, s.seat.Keyboard())
-	s.keepAutoFloatingViewsAboveTiles()
+	if len(s.keyboards) > 0 {
+		s.seat.NotifyKeyboardEnter(clientSurface, s.seat.Keyboard())
+	}
 	s.updateDecoration(v)
 	s.emitIPCEvent("focus_changed", s.ipcWindow(v))
 }
@@ -297,7 +311,7 @@ func (s *Server) requestViewActivation(v *View) {
 	if v == nil || !v.Mapped {
 		return
 	}
-	if v.Workspace != s.currentWorkspace {
+	if !s.viewVisible(v) {
 		s.setViewUrgent(v, true)
 		return
 	}
@@ -368,7 +382,7 @@ func (s *Server) viewAt(x, y float64) (*View, *wlroots.Surface, float64, float64
 
 func (s *Server) beginInteractive(v *View, mode CursorMode, edges wlroots.Edges) {
 	if v == nil || (v.Managed && !s.isFloatingView(v)) ||
-		s.fullscreen == v || s.cursorButtonCount == 0 {
+		s.viewFullscreen(v) || s.cursorButtonCount == 0 {
 		return
 	}
 	s.grabbedView = v
@@ -408,9 +422,13 @@ func (s *Server) unmapView(v *View) {
 	v.Animation.Running = false
 	v.RootTree.Node().SetEnabled(false)
 	s.updateDecoration(v)
-	if s.fullscreen == v {
-		s.fullscreen = nil
-		s.fullscreenMode = presentationNone
+	output := s.ensureViewOutput(v)
+	if output.Focused == v {
+		output.Focused = nil
+	}
+	if output.Fullscreen == v {
+		output.Fullscreen = nil
+		output.FullscreenMode = presentationNone
 	}
 	if s.grabbedView == v {
 		s.cancelViewGrab()

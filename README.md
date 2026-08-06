@@ -10,6 +10,7 @@ This is a clean-room core focused on predictable ownership and a small stable fe
 - XWayland windows, including override-redirect popups
 - pointer and keyboard input
 - tiling / floating layouts
+- separate tiled and floating scene layers, keeping dialogs above tiled clients
 - focus cycling and fullscreen
 - persistent borders with optional rounded corners (no per-frame destroy/recreate)
 - autostart and `hatwmbg` wallpaper support
@@ -73,10 +74,15 @@ Depending on the enabled features, runtime integrations use:
 meson setup build
 meson compile -C build
 meson test -C build
+meson compile -C build test-coverage
+meson compile -C build test-sanitizers
+meson compile -C build nested-smoke
 ```
 
 Meson uses Ninja as its default backend and generates Wayland protocol sources
 inside the build directory. The resulting compositor is `build/hatwm`.
+`nested-smoke` starts a two-output headless compositor, maps and destroys a
+native Wayland client, queries IPC, and exercises graceful shutdown.
 
 Nested testing from an existing Wayland session:
 
@@ -131,7 +137,9 @@ On first start HatWM creates:
 ```
 
 The config uses an INI-like format. Changes are reloaded automatically after
-the file modification time changes.
+the file modification time changes. Automatic reload and `hatwmctl reload`
+share the same transactional path: fallible resources are prepared before the
+new configuration becomes active.
 
 Wallpapers are displayed by the standalone `hatwmbg` layer-shell client:
 
@@ -269,6 +277,15 @@ The main `[settings]` values and accepted ranges are:
 | `move_step` | `1`–`500` | keyboard movement distance for floating windows |
 | `volume_step` | `1`–`100` | multimedia-key volume increment |
 | `workspaces` | `1`–`9` | numbered workspace count |
+| `keyboard_repeat_rate` | `0`–`1000` | key repeats per second (`0` disables repeat) |
+| `keyboard_repeat_delay` | `0`–`10000` | delay before repeating, in milliseconds |
+| `touchpad_tap_to_click` | `true` or `false` | libinput tap-to-click policy |
+| `pointer_natural_scroll` | `true` or `false` | reverse supported scrolling axes |
+| `pointer_accel_speed` | `-1.0`–`1.0` | libinput pointer acceleration speed |
+| `pointer_accel_profile` | `adaptive` or `flat` | libinput acceleration profile |
+| `pointer_left_handed` | `true` or `false` | swap primary pointer buttons where supported |
+| `touchpad_scroll_method` | `two_finger`, `edge`, `button`, or `none` | libinput scroll method |
+| `touchpad_disable_while_typing` | `true` or `false` | suppress supported touchpads while typing |
 | `active_border_color` | `RRGGBB` or `RRGGBBAA` | focused border color |
 | `inactive_border_color` | `RRGGBB` or `RRGGBBAA` | unfocused border color |
 
@@ -298,6 +315,9 @@ output edges while HatWM keeps a reachable strip visible. Their top edge stays
 inside the usable output so the window cannot become unreachable behind a
 panel. Dialog, modal, and fixed-size auto-floating windows are centered and
 kept fully inside the usable area.
+Dragging a window onto another monitor transfers it to that output and its
+active workspace. Every output tracks independent usable bounds, workspace,
+fullscreen window, and focus history.
 
 ## IPC and `hatwmctl`
 
@@ -317,6 +337,15 @@ hatwmctl set-wallpaper ~/Pictures/Wallpapers/wallpaper.jpg
 hatwmctl reload
 ```
 
+HatWM handles `SIGINT` and `SIGTERM` as graceful shutdown requests and reloads
+configuration on `SIGHUP`. Operational commands include:
+
+```sh
+hatwm --version
+hatwm --check-config
+hatwm --debug
+```
+
 An IPC wallpaper change affects the running session but does not rewrite the
 configuration file. See [IPC.md](IPC.md) for the protocol handshake, queries,
 commands, events, and geometry records used by panels and pagers.
@@ -329,6 +358,8 @@ temporary wrapper copies, and does not use GC tombstone slices. Decorations
 are persistent C scene rectangles attached to the view's root tree and are
 resized/recolored instead of destroyed and recreated on normal commits.
 Rounded-corner slice nodes follow the same ownership rule.
+Physical and nested outputs are represented by independent `OutputState`
+owners rather than a shared primary-output rectangle.
 
 ## XWayland
 
@@ -337,6 +368,9 @@ running autostart commands. Regular X11 windows participate in HatWM's tiling,
 focus, fullscreen, workspace, border, and interactive floating behavior.
 Override-redirect windows such as menus and tooltips retain their client-owned
 position and size.
+If XWayland cannot start, HatWM logs the failure and continues as a native
+Wayland compositor. ScreenCast initialization follows the same optional
+subsystem policy.
 
 On Arch Linux:
 

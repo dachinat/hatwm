@@ -12,6 +12,7 @@ wlroots = dependency('wlroots-0.18', required: true)
 wayland_server = dependency('wayland-server', required: true)
 wayland_protocols = dependency('wayland-protocols', required: true)
 xkbcommon = dependency('xkbcommon', required: true)
+libinput = dependency('libinput', required: true)
 pipewire = dependency('libpipewire-0.3', required: true)
 systemd = dependency('libsystemd', required: true)
 xcb = dependency('xcb', required: true)
@@ -76,12 +77,14 @@ hatwm_sources = files(
   'cmd/hatwm/main.go',
   'internal/compositor/animations.go',
   'internal/compositor/appearance.go',
+  'internal/compositor/build_info.go',
   'internal/compositor/config.go',
   'internal/compositor/cursor_image.go',
   'internal/compositor/decorations.go',
   'internal/compositor/desktop_protocols.go',
   'internal/compositor/foreign_toplevel.go',
   'internal/compositor/input.go',
+  'internal/compositor/input_config.go',
   'internal/compositor/input_protocols.go',
   'internal/compositor/ipc.go',
   'internal/compositor/layer_shell.go',
@@ -89,6 +92,7 @@ hatwm_sources = files(
   'internal/compositor/maximize.go',
   'internal/compositor/model.go',
   'internal/compositor/output_protocols.go',
+  'internal/compositor/output_state.go',
   'internal/compositor/screencast_portal.go',
   'internal/compositor/screencopy.go',
   'internal/compositor/server.go',
@@ -113,6 +117,8 @@ hatwm_sources = files(
   'internal/compositor/foreign_toplevel.h',
   'internal/compositor/input_protocols.c',
   'internal/compositor/input_protocols.h',
+  'internal/compositor/input_config.c',
+  'internal/compositor/input_config.h',
   'internal/compositor/keyboard_layout.c',
   'internal/compositor/keyboard_layout.h',
   'internal/compositor/layer_shell.c',
@@ -192,6 +198,30 @@ test(
   timeout: 180,
 )
 
+coverage_file = join_paths(build_root, 'coverage.out')
+run_target(
+  'test-coverage',
+  command: [
+    go, '-C', source_root, 'test',
+    '-coverprofile=' + coverage_file,
+    './...',
+  ],
+  env: go_env,
+  depends: generated_protocols,
+)
+
+sanitizer_env = environment()
+sanitizer_env.set('CGO_CFLAGS', '-I' + build_root + ' -fsanitize=address,undefined -fno-omit-frame-pointer')
+sanitizer_env.set('CGO_LDFLAGS', '-fsanitize=address,undefined')
+sanitizer_env.set('ASAN_OPTIONS', 'detect_leaks=0:halt_on_error=1')
+sanitizer_env.set('UBSAN_OPTIONS', 'halt_on_error=1:print_stacktrace=1')
+run_target(
+  'test-sanitizers',
+  command: [go, '-C', source_root, 'test', './...'],
+  env: sanitizer_env,
+  depends: generated_protocols,
+)
+
 run_target(
   'fmt',
   command: [go, '-C', source_root, 'fmt', './...'],
@@ -209,6 +239,16 @@ nested_env.set('WLR_BACKENDS', 'wayland')
 nested_env.set('WLR_WL_OUTPUTS', '1')
 run_target('run', command: hatwm)
 run_target('nested', command: hatwm, env: nested_env)
+
+smoke_test = find_program('tests/nested_smoke.sh')
+kitty = find_program('kitty', required: false)
+if kitty.found()
+  run_target(
+    'nested-smoke',
+    command: [smoke_test, join_paths(build_root, 'hatwm'), kitty],
+    depends: hatwm,
+  )
+endif
 
 install_data(
   'data/hatwm-portals.conf',
@@ -239,6 +279,7 @@ summary(
     'Wayland server': wayland_server.version(),
     'Wayland protocols': wayland_protocols.version(),
     'xkbcommon': xkbcommon.version(),
+    'libinput': libinput.version(),
     'PipeWire': pipewire.version(),
     'systemd': systemd.version(),
     'XCB': xcb.version(),

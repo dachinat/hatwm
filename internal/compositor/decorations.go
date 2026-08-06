@@ -171,7 +171,7 @@ func (s *Server) updateDecoration(v *View) {
 	}
 
 	b := s.viewBorderSize(v)
-	if b <= 0 || s.fullscreen == v {
+	if b <= 0 || s.viewFullscreen(v) {
 		s.hideDecoration(v)
 		v.SurfaceTree.Node().SetPosition(0, 0)
 		v.setXWaylandRoundedClip(0)

@@ -21,39 +21,48 @@ type KeyBinding struct {
 }
 
 type Config struct {
-	Gaps                int
-	Tiling              bool
-	Wallpaper           string
-	WindowOpacity       float64
-	BorderSize          int
-	BorderRounding      int
-	FocusFollowsMouse   bool
-	CursorTheme         string
-	CursorSize          int
-	ColorScheme         string
-	GTKTheme            string
-	IconTheme           string
-	FontName            string
-	QTStyle             string
-	QTPlatformTheme     string
-	WindowButtonLayout  string
-	MoveStep            int
-	VolumeStep          int
-	WorkspaceCount      int
-	KeyboardLayouts     []string
-	KeyboardVariants    string
-	KeyboardOptions     string
-	Notifications       bool
-	NotificationDaemon  string
-	Animations          bool
-	AnimationDurationMS int
-	AnimationEasing     string
-	AnimationOpenOffset int
-	ActiveBorderColor   [4]float32
-	InactiveBorderColor [4]float32
-	WindowRules         []WindowRule
-	KeyBindings         []KeyBinding
-	Autostart           []string
+	Gaps                       int
+	Tiling                     bool
+	Wallpaper                  string
+	WindowOpacity              float64
+	BorderSize                 int
+	BorderRounding             int
+	FocusFollowsMouse          bool
+	CursorTheme                string
+	CursorSize                 int
+	ColorScheme                string
+	GTKTheme                   string
+	IconTheme                  string
+	FontName                   string
+	QTStyle                    string
+	QTPlatformTheme            string
+	WindowButtonLayout         string
+	MoveStep                   int
+	VolumeStep                 int
+	WorkspaceCount             int
+	KeyboardLayouts            []string
+	KeyboardVariants           string
+	KeyboardOptions            string
+	KeyboardRepeatRate         int
+	KeyboardRepeatDelay        int
+	TouchpadTapToClick         bool
+	PointerNaturalScroll       bool
+	PointerAccelSpeed          float64
+	PointerAccelProfile        string
+	PointerLeftHanded          bool
+	TouchpadScrollMethod       string
+	TouchpadDisableWhileTyping bool
+	Notifications              bool
+	NotificationDaemon         string
+	Animations                 bool
+	AnimationDurationMS        int
+	AnimationEasing            string
+	AnimationOpenOffset        int
+	ActiveBorderColor          [4]float32
+	InactiveBorderColor        [4]float32
+	WindowRules                []WindowRule
+	KeyBindings                []KeyBinding
+	Autostart                  []string
 }
 
 const defaultConfigFile = `# HatWM configuration
@@ -72,6 +81,15 @@ workspaces = 9
 keyboard_layouts = us,ge,ru
 # keyboard_variants =
 # keyboard_options =
+keyboard_repeat_rate = 25
+keyboard_repeat_delay = 600
+touchpad_tap_to_click = true
+pointer_natural_scroll = false
+pointer_accel_speed = 0.0
+pointer_accel_profile = adaptive
+pointer_left_handed = false
+touchpad_scroll_method = two_finger
+touchpad_disable_while_typing = true
 notifications = true
 notification_daemon = auto
 animations = true
@@ -152,20 +170,26 @@ func defaultConfig() Config {
 		// Empty means that an older config without [appearance] leaves the
 		// user's existing toolkit preference untouched. Newly generated configs
 		// explicitly select "default" in that section.
-		ColorScheme:         "",
-		WindowButtonLayout:  "appmenu:maximize,close",
-		MoveStep:            40,
-		VolumeStep:          5,
-		WorkspaceCount:      9,
-		KeyboardLayouts:     []string{"us"},
-		Notifications:       true,
-		NotificationDaemon:  "auto",
-		Animations:          true,
-		AnimationDurationMS: 180,
-		AnimationEasing:     "ease_out_cubic",
-		AnimationOpenOffset: 24,
-		ActiveBorderColor:   active,
-		InactiveBorderColor: inactive,
+		ColorScheme:                "",
+		WindowButtonLayout:         "appmenu:maximize,close",
+		MoveStep:                   40,
+		VolumeStep:                 5,
+		WorkspaceCount:             9,
+		KeyboardLayouts:            []string{"us"},
+		KeyboardRepeatRate:         25,
+		KeyboardRepeatDelay:        600,
+		TouchpadTapToClick:         true,
+		PointerAccelProfile:        "adaptive",
+		TouchpadScrollMethod:       "two_finger",
+		TouchpadDisableWhileTyping: true,
+		Notifications:              true,
+		NotificationDaemon:         "auto",
+		Animations:                 true,
+		AnimationDurationMS:        180,
+		AnimationEasing:            "ease_out_cubic",
+		AnimationOpenOffset:        24,
+		ActiveBorderColor:          active,
+		InactiveBorderColor:        inactive,
 	}
 }
 
@@ -202,7 +226,9 @@ func LoadConfig() (Config, error) {
 	section := ""
 	var currentWindowRule *WindowRule
 	scanner := bufio.NewScanner(f)
+	lineNumber := 0
 	for scanner.Scan() {
+		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
@@ -219,6 +245,8 @@ func LoadConfig() (Config, error) {
 		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
+			slog.Warn("ignoring malformed config line",
+				"path", path, "line", lineNumber, "content", line)
 			continue
 		}
 		key := strings.TrimSpace(parts[0])
@@ -231,7 +259,8 @@ func LoadConfig() (Config, error) {
 		case "keybindings":
 			binding, err := parseKeyBinding(key, value)
 			if err != nil {
-				slog.Warn("ignoring invalid keybinding", "binding", key, "error", err)
+				slog.Warn("ignoring invalid keybinding", "path", path,
+					"line", lineNumber, "binding", key, "error", err)
 				continue
 			}
 			cfg.KeyBindings = append(cfg.KeyBindings, binding)
@@ -245,6 +274,7 @@ func LoadConfig() (Config, error) {
 			}
 			if err := parseWindowRuleSetting(currentWindowRule, key, value); err != nil {
 				slog.Warn("ignoring invalid window rule setting",
+					"path", path, "line", lineNumber,
 					"rule", currentWindowRule.Name, "setting", key, "error", err)
 			}
 		}
@@ -380,6 +410,42 @@ func parseSetting(cfg *Config, key, value string) {
 		cfg.KeyboardVariants = strings.TrimSpace(value)
 	case "keyboard_options":
 		cfg.KeyboardOptions = strings.TrimSpace(value)
+	case "keyboard_repeat_rate":
+		if n, err := strconv.Atoi(value); err == nil && n >= 0 && n <= 1000 {
+			cfg.KeyboardRepeatRate = n
+		}
+	case "keyboard_repeat_delay":
+		if n, err := strconv.Atoi(value); err == nil && n >= 0 && n <= 10000 {
+			cfg.KeyboardRepeatDelay = n
+		}
+	case "touchpad_tap_to_click":
+		if enabled, err := strconv.ParseBool(value); err == nil {
+			cfg.TouchpadTapToClick = enabled
+		}
+	case "pointer_natural_scroll":
+		if enabled, err := strconv.ParseBool(value); err == nil {
+			cfg.PointerNaturalScroll = enabled
+		}
+	case "pointer_accel_speed":
+		if speed, err := strconv.ParseFloat(value, 64); err == nil && speed >= -1 && speed <= 1 {
+			cfg.PointerAccelSpeed = speed
+		}
+	case "pointer_accel_profile":
+		if profile := strings.ToLower(strings.TrimSpace(value)); profile == "adaptive" || profile == "flat" {
+			cfg.PointerAccelProfile = profile
+		}
+	case "pointer_left_handed":
+		if enabled, err := strconv.ParseBool(value); err == nil {
+			cfg.PointerLeftHanded = enabled
+		}
+	case "touchpad_scroll_method":
+		if method := strings.ToLower(strings.TrimSpace(value)); method == "two_finger" || method == "edge" || method == "button" || method == "none" {
+			cfg.TouchpadScrollMethod = method
+		}
+	case "touchpad_disable_while_typing":
+		if enabled, err := strconv.ParseBool(value); err == nil {
+			cfg.TouchpadDisableWhileTyping = enabled
+		}
 	case "move_step":
 		if n, err := strconv.Atoi(value); err == nil && n >= 1 && n <= 500 {
 			cfg.MoveStep = n

@@ -40,6 +40,7 @@ type LayerSurface struct {
 	lastW      uint32
 	lastH      uint32
 	configured bool
+	output     *OutputState
 }
 
 type usableBox struct {
@@ -98,8 +99,12 @@ func (s *Server) handleLayerNew(ptr *C.struct_wlr_layer_surface_v1) {
 	if ptr == nil {
 		return
 	}
+	output := s.outputStateForPointer(C.hatwm_layer_surface_output(ptr))
+	if output == nil {
+		output = s.currentOutputState()
+	}
 	if len(s.outputs) > 0 && C.hatwm_layer_surface_output(ptr) == nil {
-		C.hatwm_layer_surface_set_output(ptr, (*C.struct_wlr_output)(outputPointer(s.outputs[0])))
+		C.hatwm_layer_surface_set_output(ptr, (*C.struct_wlr_output)(outputPointer(output.Output)))
 	}
 	layer := uint32(C.hatwm_layer_surface_layer(ptr))
 	parent := s.layerTree(layer)
@@ -109,7 +114,7 @@ func (s *Server) handleLayerNew(ptr *C.struct_wlr_layer_surface_v1) {
 		return
 	}
 	C.hatwm_layer_surface_set_scene_tree(ptr, scene)
-	ls := &LayerSurface{ptr: ptr, scene: scene, layer: layer}
+	ls := &LayerSurface{ptr: ptr, scene: scene, layer: layer, output: output}
 	C.hatwm_scene_tree_set_enabled(scene, false)
 	s.layerSurfaces = append(s.layerSurfaces, ls)
 	slog.Info("layer surface created", "layer", layer)
@@ -117,6 +122,18 @@ func (s *Server) handleLayerNew(ptr *C.struct_wlr_layer_surface_v1) {
 	// layer-shell state yet, so anchors/desired size may still be incomplete.
 	// The first surface commit will call handleLayerCommit, which sends exactly
 	// one initial configure.
+}
+
+func (s *Server) outputStateForPointer(ptr *C.struct_wlr_output) *OutputState {
+	if ptr == nil {
+		return nil
+	}
+	for _, output := range s.outputs {
+		if unsafe.Pointer(ptr) == outputPointer(output.Output) {
+			return output
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleLayerMap(ptr *C.struct_wlr_layer_surface_v1) {
@@ -212,28 +229,39 @@ func (s *Server) focusLayerSurface(ls *LayerSurface) {
 	if mode == keyboardNone {
 		return
 	}
+	if ls.output != nil {
+		s.activeOutput = ls.output
+	}
 	sp := C.hatwm_layer_surface_surface(ls.ptr)
 	if sp == nil {
 		return
 	}
 	var surface wlroots.Surface
 	*(*unsafe.Pointer)(unsafe.Pointer(&surface)) = unsafe.Pointer(sp)
-	s.seat.NotifyKeyboardEnter(surface, s.seat.Keyboard())
+	if len(s.keyboards) > 0 {
+		s.seat.NotifyKeyboardEnter(surface, s.seat.Keyboard())
+	}
 }
 
 func (s *Server) arrangeLayers() {
 	if len(s.outputs) == 0 {
 		return
 	}
-	outW, outH := s.outputs[0].EffectiveResolution()
-	full := usableBox{width: outW, height: outH}
+	for _, output := range s.outputs {
+		s.refreshOutputGeometry(output)
+		s.arrangeLayersForOutput(output)
+	}
+}
+
+func (s *Server) arrangeLayersForOutput(output *OutputState) {
+	full := output.Full
 	usable := full
 
 	// A layer-shell client cannot map until the compositor sends an initial
 	// configure. Configure unmapped surfaces too; they must not reserve usable
 	// space until they are actually mapped.
 	for _, ls := range s.layerSurfaces {
-		if !ls.mapped {
+		if ls.output == output && !ls.mapped {
 			s.arrangeOneLayer(ls, full, nil)
 		}
 	}
@@ -241,7 +269,7 @@ func (s *Server) arrangeLayers() {
 	// Exclusive mapped surfaces reserve space before normal/non-exclusive surfaces are placed.
 	for _, layer := range []uint32{layerOverlay, layerTop, layerBottom, layerBackground} {
 		for _, ls := range s.layerSurfaces {
-			if !ls.mapped || ls.layer != layer {
+			if ls.output != output || !ls.mapped || ls.layer != layer {
 				continue
 			}
 			anchor := uint32(C.hatwm_layer_surface_anchor(ls.ptr))
@@ -254,7 +282,7 @@ func (s *Server) arrangeLayers() {
 	}
 	for _, layer := range []uint32{layerBackground, layerBottom, layerTop, layerOverlay} {
 		for _, ls := range s.layerSurfaces {
-			if !ls.mapped || ls.layer != layer {
+			if ls.output != output || !ls.mapped || ls.layer != layer {
 				continue
 			}
 			anchor := uint32(C.hatwm_layer_surface_anchor(ls.ptr))
@@ -266,8 +294,8 @@ func (s *Server) arrangeLayers() {
 		}
 	}
 
-	s.usable = usable
-	s.arrangeViewsIn(usable)
+	output.Usable = usable
+	s.arrangeViewsIn(output, usable)
 }
 
 // effectiveExclusiveZone implements the anchor validation required by the

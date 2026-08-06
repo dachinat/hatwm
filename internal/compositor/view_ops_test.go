@@ -39,7 +39,7 @@ func TestViewSurfaceOffset(t *testing.T) {
 		t.Fatalf("unmanaged surface offset = %d, want 0", got)
 	}
 	view.Managed = true
-	server.fullscreen = view
+	server.fallbackOutput.Fullscreen = view
 	if got := view.surfaceOffset(); got != 0 {
 		t.Fatalf("fullscreen surface offset = %d, want 0", got)
 	}

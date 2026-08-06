@@ -76,6 +76,8 @@ type Server struct {
 	keyboards           []*Keyboard
 	keyboardModifiers   wlroots.KeyboardModifier
 	keyboardLayoutIndex int
+	vtSwitchKeyCode     uint32
+	vtSwitchKeyActive   bool
 	currentWorkspace    int
 
 	cursorMode        CursorMode

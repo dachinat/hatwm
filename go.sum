@@ -1,4 +1,4 @@
-github.com/dachinat/go-wlroots v0.0.0-20260726000854-a073c1e6968d h1:vR0EMrxFiYg65pcboMQssUxdoGoIj38vTbTZjkCYopE=
-github.com/dachinat/go-wlroots v0.0.0-20260726000854-a073c1e6968d/go.mod h1:q8aPSXq+s5kHUiKwDzprdHGQCZRpw68y+0KEncqvB0c=
+github.com/dachinat/go-wlroots v0.0.0-20260806103519-61b8e491c2ab h1:Y8n6MZ3CeA5cIkACUg4OkvcSHAxsZGDttRzsccW+8MM=
+github.com/dachinat/go-wlroots v0.0.0-20260806103519-61b8e491c2ab/go.mod h1:q8aPSXq+s5kHUiKwDzprdHGQCZRpw68y+0KEncqvB0c=
 golang.org/x/sys v0.33.0 h1:q3i8TbbEz+JRD9ywIRlyRAQbM0qF7hu24q3teo2hbuw=
 golang.org/x/sys v0.33.0/go.mod h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k=

@@ -58,6 +58,26 @@ func (s *Server) handleNewKeyboard(dev wlroots.InputDevice) {
 
 func (s *Server) handleKey(kb wlroots.Keyboard, time uint32, keyCode uint32, _ bool, state wlroots.KeyState) {
 	s.notifyInputActivity()
+
+	// VT switching must remain available even while the session is locked or a
+	// client inhibits compositor shortcuts. The compositor owns the DRM session,
+	// so forwarding Ctrl+Alt+Fn to a client cannot switch consoles.
+	if state == wlroots.KeyStatePressed {
+		s.vtSwitchKeyActive = false
+		baseSym := xkb.KeySym(C.hatwm_keyboard_base_keysym(
+			(*C.struct_wlr_keyboard)(keyboardPointer(kb)),
+			C.uint32_t(keyCode+8),
+		))
+		if vt, ok := virtualTerminalForKey(baseSym, kb.Modifiers()); ok && s.backend.ChangeVT(vt) {
+			s.vtSwitchKeyCode = keyCode
+			s.vtSwitchKeyActive = true
+			return
+		}
+	} else if s.vtSwitchKeyActive && s.vtSwitchKeyCode == keyCode {
+		s.vtSwitchKeyActive = false
+		return
+	}
+
 	// While locked, every key belongs to the lock client. In particular,
 	// compositor shortcuts such as exit, exec and workspace switching must not
 	// remain available behind swaylock.
@@ -107,6 +127,14 @@ func (s *Server) handleKey(kb wlroots.Keyboard, time uint32, keyCode uint32, _ b
 		s.seat.SetKeyboard(kb.Base())
 		s.seat.NotifyKeyboardKey(time, keyCode, state)
 	}
+}
+
+func virtualTerminalForKey(sym xkb.KeySym, modifiers wlroots.KeyboardModifier) (uint, bool) {
+	required := wlroots.KeyboardModifierCtrl | wlroots.KeyboardModifierAlt
+	if modifiers&required != required || sym < xkb.KeySymF1 || sym > xkb.KeySymF12 {
+		return 0, false
+	}
+	return uint(sym-xkb.KeySymF1) + 1, true
 }
 
 func (s *Server) executeAction(action, arg string) bool {

@@ -278,16 +278,20 @@ func (s *Server) focusView(v *View, surface *wlroots.Surface) {
 	s.activeOutput = s.ensureViewOutput(v)
 	s.rememberOutputFocus(s.activeOutput, v)
 	s.activeOutput.Focused = v
-	if prev == v {
+	clientSurface := v.clientSurface()
+	// OutputState.Focused is also the remembered focus used when returning to
+	// a workspace. It can still point at v after keyboard focus was cleared,
+	// so only take the fast path when the seat really focuses this surface.
+	if prev == v && !clientSurface.Nil() &&
+		s.seat.KeyboardState().FocusedSurface() == clientSurface {
 		return
 	}
-	if prev != nil {
+	if prev != nil && prev != v {
 		prev.setActivated(false)
 		s.updateDecoration(prev)
 	}
 	v.RootTree.Node().RaiseToTop()
 	v.setActivated(true)
-	clientSurface := v.clientSurface()
 	if clientSurface.Nil() {
 		return
 	}

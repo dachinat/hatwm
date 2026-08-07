@@ -50,6 +50,9 @@ func (s *Server) switchWorkspace(number int) {
 		previous.setActivated(false)
 		s.updateDecoration(previous)
 	}
+	// The MRU entry remains in FocusHistory, while Focused must represent the
+	// currently focused view on the newly visible workspace.
+	output.Focused = nil
 	if output.Fullscreen != nil {
 		setClientPresentationState(output.Fullscreen, presentationNone)
 		output.Fullscreen = nil
@@ -88,6 +91,9 @@ func (s *Server) moveFocusedToWorkspace(number int) bool {
 		output.FullscreenMode = presentationNone
 	}
 	view.setActivated(false)
+	if output.Focused == view {
+		output.Focused = nil
+	}
 	view.Workspace = number
 	view.RootTree.Node().SetEnabled(false)
 	C.hatwm_clear_keyboard_focus((*C.struct_wlr_seat)(seatPointer(s.seat)))

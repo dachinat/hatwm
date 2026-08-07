@@ -19,6 +19,44 @@ type OutputState struct {
 	FullscreenMode   presentationMode
 	Focused          *View
 	FocusHistory     []*View
+	tileLayouts      map[int]*tileLayoutState
+}
+
+func (s *Server) tileLayoutForOutput(output *OutputState) *tileLayoutState {
+	if output == nil {
+		output = s.currentOutputState()
+	}
+	return s.tileLayoutForWorkspace(output, output.CurrentWorkspace)
+}
+
+func (s *Server) tileLayoutForView(v *View) *tileLayoutState {
+	if v == nil {
+		return s.tileLayoutForOutput(s.currentOutputState())
+	}
+	output := s.ensureViewOutput(v)
+	workspace := v.Workspace
+	if workspace <= 0 {
+		workspace = output.CurrentWorkspace
+	}
+	return s.tileLayoutForWorkspace(output, workspace)
+}
+
+func (s *Server) tileLayoutForWorkspace(output *OutputState, workspace int) *tileLayoutState {
+	if output == nil {
+		output = &s.fallbackOutput
+	}
+	if workspace <= 0 {
+		workspace = 1
+	}
+	if output.tileLayouts == nil {
+		output.tileLayouts = make(map[int]*tileLayoutState)
+	}
+	layout := output.tileLayouts[workspace]
+	if layout == nil {
+		layout = &tileLayoutState{MasterRatio: 0.5, StackRatio: 0.5}
+		output.tileLayouts[workspace] = layout
+	}
+	return layout
 }
 
 func (s *Server) currentOutputState() *OutputState {

@@ -72,6 +72,11 @@ func (s *Server) arrangeViewsIn(output *OutputState, area usableBox) {
 	if len(views) == 0 {
 		return
 	}
+	layout := s.tileLayoutForOutput(output)
+	if len(views) < 4 {
+		inheritLegacyTileRatios(layout)
+		layout.Grid = tileGridState{Count: len(views)}
+	}
 	inner := func(v *View, w, h int) (uint32, uint32) {
 		b := 2 * s.viewBorderSize(v)
 		if w <= b {
@@ -95,8 +100,13 @@ func (s *Server) arrangeViewsIn(output *OutputState, area usableBox) {
 		for i, v := range views {
 			minimums[i].width, minimums[i].height = v.minimumSize()
 		}
-		for i, tile := range minimumAwareGridTiles(
-			area, minimums, gap, s.config.BorderSize) {
+		preferred := minimumAwareGridTiles(area, minimums, gap, s.config.BorderSize)
+		rowCounts := tileGridRowCounts(preferred)
+		ensureTileGridState(&layout.Grid, len(views), rowCounts,
+			layout.MasterRatio, layout.StackRatio)
+		for i, tile := range weightedGridTiles(area, rowCounts, gap,
+			s.config.BorderSize, minimums, layout.Grid.RowWeights,
+			layout.Grid.ColumnWeights) {
 			v := views[i]
 			w, h := inner(v, tile.width, tile.height)
 			s.setViewPosition(v, float64(tile.x), float64(tile.y))
@@ -110,7 +120,7 @@ func (s *Server) arrangeViewsIn(output *OutputState, area usableBox) {
 	if availableW < 2 {
 		availableW = 2
 	}
-	ratio := s.tileMasterRatio
+	ratio := layout.MasterRatio
 	if ratio < 0.2 {
 		ratio = 0.2
 	}
@@ -131,16 +141,320 @@ func (s *Server) arrangeViewsIn(output *OutputState, area usableBox) {
 	master.setTiledContentSize(mw, mh)
 	master.setSize(mw, mh)
 	count := len(views) - 1
-	stackH := (outH - 2*gap - (count-1)*gap) / count
+	stackAvailableH := outH - 2*gap - (count-1)*gap
+	stackHeights := []int{stackAvailableH}
+	if count == 2 {
+		_, firstMinHeight := views[1].minimumSize()
+		_, secondMinHeight := views[2].minimumSize()
+		stackHeights = splitStackHeights(stackAvailableH, layout.StackRatio,
+			firstMinHeightWithBorder(firstMinHeight, s.viewBorderSize(views[1])),
+			firstMinHeightWithBorder(secondMinHeight, s.viewBorderSize(views[2])))
+	}
+	stackY := uy + gap
 	for i := 1; i < len(views); i++ {
 		v := views[i]
+		stackH := stackHeights[i-1]
 		w, h := inner(v, stackW, stackH)
 		x := ux + masterW + 2*gap
-		y := uy + gap + (i-1)*(stackH+gap)
-		s.setViewPosition(v, float64(x), float64(y))
+		s.setViewPosition(v, float64(x), float64(stackY))
 		v.setTiledContentSize(w, h)
 		v.setSize(w, h)
+		stackY += stackH + gap
 	}
+}
+
+func tileGridRowCounts(tiles []usableBox) []int {
+	var counts []int
+	lastY := 0
+	for i, tile := range tiles {
+		if i == 0 || tile.y != lastY {
+			counts = append(counts, 0)
+			lastY = tile.y
+		}
+		counts[len(counts)-1]++
+	}
+	return counts
+}
+
+func sameInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func ensureTileGridState(state *tileGridState, count int, rowCounts []int,
+	masterRatio, stackRatio float64,
+) {
+	if state == nil {
+		return
+	}
+	if tileGridStateMatches(*state, count, rowCounts) {
+		return
+	}
+
+	previous := *state
+	next := tileGridState{
+		Count:     count,
+		RowCounts: append([]int(nil), rowCounts...),
+	}
+	if previous.Count >= 4 && tileGridStateShapeValid(previous) {
+		next.RowWeights = migrateTileWeights(previous.RowWeights, len(rowCounts))
+		next.ColumnWeights = make([][]float64, len(rowCounts))
+		for row, columns := range rowCounts {
+			var source []float64
+			if row < len(previous.ColumnWeights) {
+				source = previous.ColumnWeights[row]
+			} else if len(previous.ColumnWeights) > 0 {
+				source = previous.ColumnWeights[len(previous.ColumnWeights)-1]
+			}
+			next.ColumnWeights[row] = migrateTileWeights(source, columns)
+		}
+	} else {
+		next.RowWeights = seededTileWeights(len(rowCounts), stackRatio)
+		next.ColumnWeights = make([][]float64, len(rowCounts))
+		for row, columns := range rowCounts {
+			next.ColumnWeights[row] = seededTileWeights(columns, masterRatio)
+		}
+	}
+	*state = next
+}
+
+func tileGridStateMatches(state tileGridState, count int, rowCounts []int) bool {
+	return state.Count == count && sameInts(state.RowCounts, rowCounts) &&
+		tileGridStateShapeValid(state)
+}
+
+func tileGridStateShapeValid(state tileGridState) bool {
+	if state.Count < 0 || len(state.RowCounts) != len(state.RowWeights) ||
+		len(state.RowCounts) != len(state.ColumnWeights) {
+		return false
+	}
+	total := 0
+	for row, columns := range state.RowCounts {
+		if columns <= 0 || len(state.ColumnWeights[row]) != columns ||
+			state.RowWeights[row] <= 0 {
+			return false
+		}
+		for _, weight := range state.ColumnWeights[row] {
+			if weight <= 0 {
+				return false
+			}
+		}
+		total += columns
+	}
+	return total == state.Count
+}
+
+// seededTileWeights translates the legacy two-way master/stack ratios into
+// grid weights. A 50/50 split becomes [1, 1], while e.g. 70/30 becomes
+// [1.4, 0.6]. Extra rows/columns start at weight 1, so adding a tile keeps the
+// existing split ratio instead of resetting every boundary to 50/50.
+func seededTileWeights(count int, ratio float64) []float64 {
+	if count <= 0 {
+		return nil
+	}
+	weights := make([]float64, count)
+	for i := range weights {
+		weights[i] = 1
+	}
+	if count < 2 {
+		return weights
+	}
+	ratio = clampTileRatio(ratio, 0.1, 0.9, 0.5)
+	weights[0] = 2 * ratio
+	weights[1] = 2 * (1 - ratio)
+	return weights
+}
+
+// migrateTileWeights retains all existing boundary proportions and only gives
+// newly introduced rows/columns the old average weight. This is what prevents
+// a 4->5, 5->6, ... layout change from flattening user-resized tiles.
+func migrateTileWeights(source []float64, count int) []float64 {
+	if count <= 0 {
+		return nil
+	}
+	average, total, valid := 1.0, 0.0, 0
+	for _, weight := range source {
+		if weight > 0 {
+			total += weight
+			valid++
+		}
+	}
+	if valid > 0 {
+		average = total / float64(valid)
+	}
+	weights := make([]float64, count)
+	for i := range weights {
+		weights[i] = average
+		if i < len(source) && source[i] > 0 {
+			weights[i] = source[i]
+		}
+	}
+	return weights
+}
+
+func inheritLegacyTileRatios(layout *tileLayoutState) {
+	if layout == nil || layout.Grid.Count < 4 || !tileGridStateShapeValid(layout.Grid) {
+		return
+	}
+	if ratio, ok := firstWeightShare(layout.Grid.RowWeights); ok {
+		layout.StackRatio = clampTileRatio(ratio, 0.1, 0.9, layout.StackRatio)
+	}
+	for _, weights := range layout.Grid.ColumnWeights {
+		if ratio, ok := firstWeightShare(weights); ok {
+			layout.MasterRatio = clampTileRatio(ratio, 0.2, 0.8, layout.MasterRatio)
+			break
+		}
+	}
+}
+
+func firstWeightShare(weights []float64) (float64, bool) {
+	if len(weights) < 2 || weights[0] <= 0 {
+		return 0, false
+	}
+	total := 0.0
+	for _, weight := range weights {
+		if weight > 0 {
+			total += weight
+		}
+	}
+	if total <= 0 {
+		return 0, false
+	}
+	return weights[0] / total, true
+}
+
+func clampTileRatio(value, minimum, maximum, fallback float64) float64 {
+	if value <= 0 {
+		value = fallback
+	}
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
+}
+
+func weightedGridTiles(area usableBox, rowCounts []int, gap, border int,
+	minimums []tileMinimum, rowWeights []float64, columnWeights [][]float64,
+) []usableBox {
+	if len(rowCounts) == 0 || area.width <= 0 || area.height <= 0 {
+		return nil
+	}
+	if gap < 0 {
+		gap = 0
+	}
+	if border < 0 {
+		border = 0
+	}
+	availableH := maxInt(len(rowCounts), area.height-(len(rowCounts)+1)*gap)
+	rowMinimums := make([]int, len(rowCounts))
+	viewIndex := 0
+	for row, columns := range rowCounts {
+		for column := 0; column < columns && viewIndex < len(minimums); column++ {
+			rowMinimums[row] = maxInt(rowMinimums[row], minimums[viewIndex].height+2*border)
+			viewIndex++
+		}
+	}
+	rowHeights := weightedTileSizes(availableH, rowWeights, rowMinimums)
+	tiles := make([]usableBox, 0, len(minimums))
+	y := area.y + gap
+	viewIndex = 0
+	for row, columns := range rowCounts {
+		availableW := maxInt(columns, area.width-(columns+1)*gap)
+		columnMinimums := make([]int, columns)
+		for column := 0; column < columns && viewIndex+column < len(minimums); column++ {
+			columnMinimums[column] = minimums[viewIndex+column].width + 2*border
+		}
+		weights := []float64(nil)
+		if row < len(columnWeights) {
+			weights = columnWeights[row]
+		}
+		widths := weightedTileSizes(availableW, weights, columnMinimums)
+		x := area.x + gap
+		for column := 0; column < columns; column++ {
+			tiles = append(tiles, usableBox{x: x, y: y,
+				width: widths[column], height: rowHeights[row]})
+			x += widths[column] + gap
+		}
+		viewIndex += columns
+		y += rowHeights[row] + gap
+	}
+	return tiles
+}
+
+func weightedTileSizes(total int, weights []float64, minimums []int) []int {
+	count := len(minimums)
+	if count == 0 {
+		return nil
+	}
+	if total < count {
+		total = count
+	}
+	minimumTotal := 0
+	for i := range minimums {
+		minimums[i] = maxInt(1, minimums[i])
+		minimumTotal += minimums[i]
+	}
+	if minimumTotal > total {
+		minimumTotal = count
+		for i := range minimums {
+			minimums[i] = 1
+		}
+	}
+	result := append([]int(nil), minimums...)
+	remaining := total - minimumTotal
+	weightTotal := 0.0
+	for i := 0; i < count; i++ {
+		weight := 1.0
+		if i < len(weights) && weights[i] > 0 {
+			weight = weights[i]
+		}
+		weightTotal += weight
+	}
+	allocated := 0
+	for i := 0; i < count; i++ {
+		share := remaining - allocated
+		if i < count-1 {
+			weight := 1.0
+			if i < len(weights) && weights[i] > 0 {
+				weight = weights[i]
+			}
+			share = int(float64(remaining) * weight / weightTotal)
+			allocated += share
+		}
+		result[i] += share
+	}
+	return result
+}
+
+func firstMinHeightWithBorder(height, border int) int {
+	if border < 0 {
+		border = 0
+	}
+	return maxInt(1, height+2*border)
+}
+
+func splitStackHeights(available int, ratio float64, firstMin, secondMin int) []int {
+	if available < 2 {
+		return []int{maxInt(1, available), 1}
+	}
+	firstMin = maxInt(1, minInt(firstMin, available-1))
+	secondMin = maxInt(1, minInt(secondMin, available-1))
+	if firstMin+secondMin > available {
+		firstMin, secondMin = 1, 1
+	}
+	first := int(float64(available) * ratio)
+	first = maxInt(firstMin, minInt(first, available-secondMin))
+	return []int{first, available - first}
 }
 
 // balancedGridTiles keeps dense workspaces usable when a vertical master

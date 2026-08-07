@@ -89,8 +89,9 @@ type Server struct {
 	resizeEdges       wlroots.Edges
 	cursorButtonCount uint32
 	grabOwnsButton    bool
-	tileMasterRatio   float64
 	grabMasterRatio   float64
+	grabStackRatio    float64
+	grabGrid          tileGridResizeGrab
 
 	outputLayout   wlroots.OutputLayout
 	outputs        []*OutputState
@@ -117,7 +118,7 @@ func seatPointer(seat wlroots.Seat) unsafe.Pointer {
 }
 
 func NewServer() (*Server, error) {
-	s := &Server{running: true, tileMasterRatio: 0.5}
+	s := &Server{running: true}
 	s.fallbackOutput.CurrentWorkspace = 1
 	cfg, err := LoadConfig()
 	if err != nil {

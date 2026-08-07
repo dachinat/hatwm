@@ -45,3 +45,24 @@ func TestOutputFocusHistoryDropsStaleEntries(t *testing.T) {
 		t.Fatalf("focus history = %v, want only current view", output.FocusHistory)
 	}
 }
+
+func TestTileLayoutStateIsScopedPerWorkspace(t *testing.T) {
+	server := &Server{}
+	output := &OutputState{CurrentWorkspace: 1}
+	first := server.tileLayoutForOutput(output)
+	first.MasterRatio = 0.7
+
+	output.CurrentWorkspace = 2
+	second := server.tileLayoutForOutput(output)
+	if second == first {
+		t.Fatal("workspaces unexpectedly share tile layout state")
+	}
+	if second.MasterRatio != 0.5 || second.StackRatio != 0.5 {
+		t.Fatalf("new workspace did not get default ratios: %+v", second)
+	}
+
+	output.CurrentWorkspace = 1
+	if got := server.tileLayoutForOutput(output); got != first || got.MasterRatio != 0.7 {
+		t.Fatalf("workspace tile layout was not preserved: %+v", got)
+	}
+}

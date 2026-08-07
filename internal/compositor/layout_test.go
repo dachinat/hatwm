@@ -2,6 +2,123 @@ package compositor
 
 import "testing"
 
+func TestEnsureTileGridStateSeedsLegacyRatios(t *testing.T) {
+	var state tileGridState
+	ensureTileGridState(&state, 4, []int{2, 2}, 0.65, 0.70)
+
+	if ratio, ok := firstWeightShare(state.RowWeights); !ok || absFloat(ratio-0.70) > 0.0001 {
+		t.Fatalf("row ratio = %.4f, want 0.70", ratio)
+	}
+	for row, weights := range state.ColumnWeights {
+		if ratio, ok := firstWeightShare(weights); !ok || absFloat(ratio-0.65) > 0.0001 {
+			t.Fatalf("row %d column ratio = %.4f, want 0.65", row, ratio)
+		}
+	}
+}
+
+func TestEnsureTileGridStatePreservesWeightsWhenAddingWindow(t *testing.T) {
+	state := tileGridState{
+		Count:         4,
+		RowCounts:     []int{2, 2},
+		RowWeights:    []float64{1.6, 0.4},
+		ColumnWeights: [][]float64{{1.5, 0.5}, {0.7, 1.3}},
+	}
+	ensureTileGridState(&state, 5, []int{3, 2}, 0.5, 0.5)
+
+	if state.RowWeights[0] != 1.6 || state.RowWeights[1] != 0.4 {
+		t.Fatalf("row weights were reset: %v", state.RowWeights)
+	}
+	if state.ColumnWeights[0][0] != 1.5 || state.ColumnWeights[0][1] != 0.5 {
+		t.Fatalf("existing first-row split was reset: %v", state.ColumnWeights[0])
+	}
+	if state.ColumnWeights[0][2] <= 0 {
+		t.Fatalf("new column did not receive a usable weight: %v", state.ColumnWeights[0])
+	}
+	if state.ColumnWeights[1][0] != 0.7 || state.ColumnWeights[1][1] != 1.3 {
+		t.Fatalf("existing second-row split was reset: %v", state.ColumnWeights[1])
+	}
+}
+
+func TestInheritLegacyTileRatiosFromGrid(t *testing.T) {
+	layout := &tileLayoutState{
+		MasterRatio: 0.5,
+		StackRatio:  0.5,
+		Grid: tileGridState{
+			Count:         4,
+			RowCounts:     []int{2, 2},
+			RowWeights:    []float64{1.4, 0.6},
+			ColumnWeights: [][]float64{{1.3, 0.7}, {1, 1}},
+		},
+	}
+	inheritLegacyTileRatios(layout)
+	if absFloat(layout.StackRatio-0.7) > 0.0001 {
+		t.Fatalf("stack ratio = %.4f, want 0.7", layout.StackRatio)
+	}
+	if absFloat(layout.MasterRatio-0.65) > 0.0001 {
+		t.Fatalf("master ratio = %.4f, want 0.65", layout.MasterRatio)
+	}
+}
+
+func TestSplitStackHeightsUsesConfiguredRatio(t *testing.T) {
+	got := splitStackHeights(1000, 0.6, 100, 100)
+	if len(got) != 2 || got[0] != 600 || got[1] != 400 {
+		t.Fatalf("splitStackHeights() = %v, want [600 400]", got)
+	}
+}
+
+func TestSplitStackHeightsHonorsBothMinimums(t *testing.T) {
+	got := splitStackHeights(1000, 0.9, 200, 300)
+	if got[0] != 700 || got[1] != 300 {
+		t.Fatalf("minimum-constrained heights = %v, want [700 300]", got)
+	}
+}
+
+func TestWeightedGridTilesFourWindows(t *testing.T) {
+	area := usableBox{x: 0, y: 32, width: 1920, height: 1048}
+	minimums := make([]tileMinimum, 4)
+	got := weightedGridTiles(area, []int{2, 2}, 20, 2, minimums,
+		[]float64{1, 1}, [][]float64{{1, 1}, {1, 1}})
+	want := balancedGridTiles(area, 4, 20)
+	if len(got) != len(want) {
+		t.Fatalf("got %d tiles, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("tile %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestWeightedGridTilesAdjustsRowsAndColumns(t *testing.T) {
+	area := usableBox{width: 1000, height: 800}
+	got := weightedGridTiles(area, []int{2, 2}, 0, 0,
+		make([]tileMinimum, 4), []float64{3, 1},
+		[][]float64{{1, 3}, {3, 1}})
+	if len(got) != 4 {
+		t.Fatalf("got %d tiles", len(got))
+	}
+	if got[0].height <= got[2].height {
+		t.Fatalf("row weights were not applied: %+v", got)
+	}
+	if got[0].width >= got[1].width || got[2].width <= got[3].width {
+		t.Fatalf("per-row column weights were not applied: %+v", got)
+	}
+	for i := 0; i < 4; i++ {
+		if got[i].width <= 0 || got[i].height <= 0 {
+			t.Fatalf("tile %d is not positive: %+v", i, got[i])
+		}
+	}
+}
+
+func TestTileGridRowCounts(t *testing.T) {
+	tiles := balancedGridTiles(usableBox{width: 1000, height: 800}, 7, 10)
+	got := tileGridRowCounts(tiles)
+	want := []int{3, 2, 2}
+	if !sameInts(got, want) {
+		t.Fatalf("row counts = %v, want %v", got, want)
+	}
+}
+
 func TestBalancedGridTilesFourWindows(t *testing.T) {
 	area := usableBox{x: 0, y: 32, width: 1920, height: 1048}
 	got := balancedGridTiles(area, 4, 20)

@@ -21,6 +21,31 @@ type Geometry struct {
 	Width, Height uint32
 }
 
+type tileGridState struct {
+	Count         int
+	RowCounts     []int
+	RowWeights    []float64
+	ColumnWeights [][]float64
+}
+
+type tileLayoutState struct {
+	MasterRatio float64
+	StackRatio  float64
+	Grid        tileGridState
+}
+
+type tileGridResizeGrab struct {
+	Active       bool
+	Vertical     bool
+	Row          int
+	Boundary     int
+	FirstWeight  float64
+	SecondWeight float64
+	FirstSize    int
+	SecondSize   int
+	Layout       *tileLayoutState
+}
+
 type viewSceneLayer uint8
 
 const (

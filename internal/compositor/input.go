@@ -503,14 +503,23 @@ func (s *Server) handleCursorButton(_ wlroots.InputDevice, time uint32, button u
 				s.grabbedView = v
 				s.grabOwnsButton = true
 				if !s.isFloatingView(v) {
-					s.cursorMode = CursorTilingResize
-					s.grabX = s.cursor.X()
-					s.grabMasterRatio = s.tileMasterRatio
-					s.beginCursorOverride("ew-resize")
+					layout := s.tileLayoutForView(v)
+					s.grabX, s.grabY = s.cursor.X(), s.cursor.Y()
+					s.grabMasterRatio = layout.MasterRatio
+					s.grabStackRatio = layout.StackRatio
+					s.resizeEdges = s.tilingResizeEdges(v)
+					if s.resizeEdges == 0 {
+						s.grabbedView = nil
+						s.grabOwnsButton = false
+					} else {
+						s.cursorMode = CursorTilingResize
+						s.beginCursorOverride(resizeCursorName(s.resizeEdges))
+						return // do not send the compositor-owned press to the client
+					}
 				} else {
 					s.beginPointerResize(v)
+					return // do not send the compositor-owned press to the client
 				}
-				return // do not send the compositor-owned press to the client
 			}
 		} else if surface != nil {
 			if ls := s.layerSurfaceForSurface(*surface); ls != nil {
@@ -532,6 +541,7 @@ func (s *Server) handleCursorButton(_ wlroots.InputDevice, time uint32, button u
 			s.cursorMode = CursorPassthrough
 			s.grabbedView = nil
 			s.grabOwnsButton = false
+			s.grabGrid = tileGridResizeGrab{}
 			s.resizeEdges = 0
 			s.endCursorOverride()
 			s.arrange()
@@ -550,6 +560,7 @@ func (s *Server) handleCursorButton(_ wlroots.InputDevice, time uint32, button u
 			s.cursorMode = CursorPassthrough
 			s.grabbedView = nil
 			s.grabOwnsButton = false
+			s.grabGrid = tileGridResizeGrab{}
 			s.resizeEdges = 0
 			s.endCursorOverride()
 			if finishedGrab {
@@ -744,14 +755,42 @@ func (s *Server) beginPointerResize(v *View) {
 }
 
 func (s *Server) processTilingResize() {
-	if !s.config.Tiling || len(s.mappedTiledViews()) < 2 || s.currentOutputState().Fullscreen != nil {
+	if !s.config.Tiling || s.grabbedView == nil {
 		return
 	}
-	area := s.currentOutputState().Usable
+	output := s.ensureViewOutput(s.grabbedView)
+	if output.Fullscreen != nil || len(s.mappedTiledViewsForOutput(output)) < 2 {
+		return
+	}
+	area := output.Usable
 	if area.width <= 0 || area.height <= 0 {
 		return
 	}
 	gap := s.config.Gaps
+	layout := s.tileLayoutForView(s.grabbedView)
+	if s.grabGrid.Active {
+		s.processGridResize()
+		return
+	}
+	if s.resizeEdges&(wlroots.EdgeTop|wlroots.EdgeBottom) != 0 {
+		availableH := area.height - 3*gap
+		if availableH <= 1 {
+			return
+		}
+		ratio := s.grabStackRatio + (s.cursor.Y()-s.grabY)/float64(availableH)
+		if ratio < 0.1 {
+			ratio = 0.1
+		}
+		if ratio > 0.9 {
+			ratio = 0.9
+		}
+		if absFloat(ratio-layout.StackRatio) < 0.002 {
+			return
+		}
+		layout.StackRatio = ratio
+		s.arrange()
+		return
+	}
 	availableW := area.width - 3*gap
 	if availableW <= 1 {
 		return
@@ -763,11 +802,241 @@ func (s *Server) processTilingResize() {
 	if ratio > 0.8 {
 		ratio = 0.8
 	}
-	if absFloat(ratio-s.tileMasterRatio) < 0.002 {
+	if absFloat(ratio-layout.MasterRatio) < 0.002 {
 		return
 	}
-	s.tileMasterRatio = ratio
+	layout.MasterRatio = ratio
 	s.arrange()
+}
+
+func (s *Server) processGridResize() {
+	grab := &s.grabGrid
+	layout := grab.Layout
+	if layout == nil {
+		layout = s.tileLayoutForView(s.grabbedView)
+	}
+	grid := &layout.Grid
+	if !grab.Active || !tileGridStateShapeValid(*grid) {
+		return
+	}
+	if grab.Vertical {
+		if grab.Boundary < 0 || grab.Boundary+1 >= len(grid.RowWeights) {
+			return
+		}
+		totalSize := grab.FirstSize + grab.SecondSize
+		if totalSize <= 1 {
+			return
+		}
+		minimum := maxInt(1, minInt(48, totalSize/2))
+		firstSize := grab.FirstSize + int(math.Round(s.cursor.Y()-s.grabY))
+		firstSize = maxInt(minimum, minInt(firstSize, totalSize-minimum))
+		fraction := float64(firstSize) / float64(totalSize)
+		totalWeight := grab.FirstWeight + grab.SecondWeight
+		grid.RowWeights[grab.Boundary] = totalWeight * fraction
+		grid.RowWeights[grab.Boundary+1] = totalWeight * (1 - fraction)
+	} else {
+		if grab.Row < 0 || grab.Row >= len(grid.ColumnWeights) ||
+			grab.Boundary < 0 || grab.Boundary+1 >= len(grid.ColumnWeights[grab.Row]) {
+			return
+		}
+		totalSize := grab.FirstSize + grab.SecondSize
+		if totalSize <= 1 {
+			return
+		}
+		minimum := maxInt(1, minInt(48, totalSize/2))
+		firstSize := grab.FirstSize + int(math.Round(s.cursor.X()-s.grabX))
+		firstSize = maxInt(minimum, minInt(firstSize, totalSize-minimum))
+		fraction := float64(firstSize) / float64(totalSize)
+		totalWeight := grab.FirstWeight + grab.SecondWeight
+		grid.ColumnWeights[grab.Row][grab.Boundary] = totalWeight * fraction
+		grid.ColumnWeights[grab.Row][grab.Boundary+1] = totalWeight * (1 - fraction)
+	}
+	s.arrange()
+}
+
+func (s *Server) tilingResizeEdges(v *View) wlroots.Edges {
+	output := s.ensureViewOutput(v)
+	views := s.mappedTiledViewsForOutput(output)
+	s.grabGrid = tileGridResizeGrab{}
+	if len(views) >= 4 {
+		layout := s.tileLayoutForView(v)
+		if !tileGridStateShapeValid(layout.Grid) || layout.Grid.Count != len(views) {
+			s.repairTileGridState(layout, views)
+		}
+		if edges, ok := s.prepareGridResize(layout, views, v); ok {
+			return edges
+		}
+		return 0
+	}
+	if len(views) == 3 && v != nil {
+		if v == views[1] {
+			g := v.geometry()
+			boundaryY := float64(v.RootTree.Node().Y() + g.Height + s.viewBorderSize(v) + s.config.Gaps/2)
+			return nearestStackResizeEdges(s.cursor.X(), s.cursor.Y(),
+				float64(v.RootTree.Node().X()), boundaryY, true)
+		}
+		if v == views[2] {
+			boundaryY := float64(v.RootTree.Node().Y() - s.config.Gaps/2)
+			return nearestStackResizeEdges(s.cursor.X(), s.cursor.Y(),
+				float64(v.RootTree.Node().X()), boundaryY, false)
+		}
+	}
+	return wlroots.EdgeRight
+}
+
+// repairTileGridState is a defensive synchronization path for pointer grabs.
+// Normally arrangeViewsIn has already prepared the state, but this also makes
+// a newly mapped tile resizable if a grab arrives between layout updates.
+func (s *Server) repairTileGridState(layout *tileLayoutState, views []*View) {
+	if layout == nil || len(views) < 4 {
+		return
+	}
+	output := s.ensureViewOutput(views[0])
+	area := output.Usable
+	if area.width <= 0 || area.height <= 0 {
+		area = output.Full
+	}
+	minimums := make([]tileMinimum, len(views))
+	for i, view := range views {
+		minimums[i].width, minimums[i].height = view.minimumSize()
+	}
+	rowCounts := tileGridRowCounts(minimumAwareGridTiles(
+		area, minimums, s.config.Gaps, s.config.BorderSize))
+	ensureTileGridState(&layout.Grid, len(views), rowCounts,
+		layout.MasterRatio, layout.StackRatio)
+}
+
+type tileGridCell struct {
+	row, column, offset int
+}
+
+func tileGridCellForIndex(rowCounts []int, index int) (tileGridCell, bool) {
+	if index < 0 {
+		return tileGridCell{}, false
+	}
+	offset := 0
+	for row, columns := range rowCounts {
+		if columns <= 0 {
+			return tileGridCell{}, false
+		}
+		if index < offset+columns {
+			return tileGridCell{row: row, column: index - offset, offset: offset}, true
+		}
+		offset += columns
+	}
+	return tileGridCell{}, false
+}
+
+func tileGridCellHasResizeBoundary(rowCounts []int, index int) bool {
+	cell, ok := tileGridCellForIndex(rowCounts, index)
+	if !ok {
+		return false
+	}
+	return cell.column > 0 || cell.column+1 < rowCounts[cell.row] ||
+		cell.row > 0 || cell.row+1 < len(rowCounts)
+}
+
+func (s *Server) prepareGridResize(layout *tileLayoutState, views []*View, v *View) (wlroots.Edges, bool) {
+	if layout == nil || !tileGridStateShapeValid(layout.Grid) || layout.Grid.Count != len(views) {
+		return 0, false
+	}
+	index := -1
+	for i, candidate := range views {
+		if candidate == v {
+			index = i
+			break
+		}
+	}
+	cell, ok := tileGridCellForIndex(layout.Grid.RowCounts, index)
+	if !ok || !tileGridCellHasResizeBoundary(layout.Grid.RowCounts, index) {
+		return 0, false
+	}
+	grid := &layout.Grid
+
+	type boundaryCandidate struct {
+		distance float64
+		edges    wlroots.Edges
+		vertical bool
+		boundary int
+	}
+	var candidates []boundaryCandidate
+	g := v.geometry()
+	border := maxInt(0, s.viewBorderSize(v))
+	left, top := float64(v.RootTree.Node().X()), float64(v.RootTree.Node().Y())
+	right := left + float64(g.Width+2*border)
+	bottom := top + float64(g.Height+2*border)
+	if cell.column > 0 {
+		candidates = append(candidates, boundaryCandidate{
+			distance: absFloat(s.cursor.X() - (left - float64(s.config.Gaps)/2)),
+			edges:    wlroots.EdgeLeft, boundary: cell.column - 1})
+	}
+	if cell.column+1 < grid.RowCounts[cell.row] {
+		candidates = append(candidates, boundaryCandidate{
+			distance: absFloat(s.cursor.X() - (right + float64(s.config.Gaps)/2)),
+			edges:    wlroots.EdgeRight, boundary: cell.column})
+	}
+	if cell.row > 0 {
+		candidates = append(candidates, boundaryCandidate{
+			distance: absFloat(s.cursor.Y() - (top - float64(s.config.Gaps)/2)),
+			edges:    wlroots.EdgeTop, vertical: true, boundary: cell.row - 1})
+	}
+	if cell.row+1 < len(grid.RowCounts) {
+		candidates = append(candidates, boundaryCandidate{
+			distance: absFloat(s.cursor.Y() - (bottom + float64(s.config.Gaps)/2)),
+			edges:    wlroots.EdgeBottom, vertical: true, boundary: cell.row})
+	}
+	if len(candidates) == 0 {
+		return 0, false
+	}
+	chosen := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if candidate.distance < chosen.distance {
+			chosen = candidate
+		}
+	}
+	grab := tileGridResizeGrab{Active: true, Vertical: chosen.vertical,
+		Row: cell.row, Boundary: chosen.boundary, Layout: layout}
+	if chosen.vertical {
+		grab.FirstWeight = grid.RowWeights[chosen.boundary]
+		grab.SecondWeight = grid.RowWeights[chosen.boundary+1]
+		grab.FirstSize = s.gridRowSize(grid, views, chosen.boundary)
+		grab.SecondSize = s.gridRowSize(grid, views, chosen.boundary+1)
+	} else {
+		weights := grid.ColumnWeights[cell.row]
+		grab.FirstWeight = weights[chosen.boundary]
+		grab.SecondWeight = weights[chosen.boundary+1]
+		first := views[cell.offset+chosen.boundary].geometry()
+		second := views[cell.offset+chosen.boundary+1].geometry()
+		grab.FirstSize = first.Width + 2*maxInt(0, s.viewBorderSize(views[cell.offset+chosen.boundary]))
+		grab.SecondSize = second.Width + 2*maxInt(0, s.viewBorderSize(views[cell.offset+chosen.boundary+1]))
+	}
+	s.grabGrid = grab
+	return chosen.edges, true
+}
+
+func (s *Server) gridRowSize(grid *tileGridState, views []*View, row int) int {
+	if grid == nil {
+		return 1
+	}
+	offset := 0
+	for candidateRow, columns := range grid.RowCounts {
+		if candidateRow == row && offset < len(views) {
+			g := views[offset].geometry()
+			return g.Height + 2*maxInt(0, s.viewBorderSize(views[offset]))
+		}
+		offset += columns
+	}
+	return 1
+}
+
+func nearestStackResizeEdges(cursorX, cursorY, left, horizontalBoundary float64, upper bool) wlroots.Edges {
+	if absFloat(cursorY-horizontalBoundary) < absFloat(cursorX-left) {
+		if upper {
+			return wlroots.EdgeBottom
+		}
+		return wlroots.EdgeTop
+	}
+	return wlroots.EdgeLeft
 }
 
 func keyboardPointer(keyboard wlroots.Keyboard) unsafe.Pointer {

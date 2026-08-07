@@ -161,8 +161,12 @@ func (s *Server) mappedViewsForOutput(output *OutputState) []*View {
 }
 
 func (s *Server) mappedTiledViews() []*View {
+	return s.mappedTiledViewsForOutput(s.currentOutputState())
+}
+
+func (s *Server) mappedTiledViewsForOutput(output *OutputState) []*View {
 	out := make([]*View, 0, len(s.views))
-	for _, v := range s.mappedViews() {
+	for _, v := range s.mappedViewsForOutput(output) {
 		if !v.AutoFloating {
 			out = append(out, v)
 		}
@@ -411,6 +415,7 @@ func (s *Server) cancelViewGrab() {
 	s.grabOwnsButton = false
 	s.cursorMode = CursorPassthrough
 	s.cursorButtonCount = 0
+	s.grabGrid = tileGridResizeGrab{}
 	s.resizeEdges = 0
 	s.endCursorOverride()
 }

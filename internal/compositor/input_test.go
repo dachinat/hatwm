@@ -6,6 +6,18 @@ import (
 	"github.com/swaywm/go-wlroots/wlroots"
 )
 
+func TestEveryDenseGridTileHasResizeBoundary(t *testing.T) {
+	area := usableBox{width: 1920, height: 1048}
+	for count := 4; count <= 20; count++ {
+		rowCounts := tileGridRowCounts(balancedGridTiles(area, count, 20))
+		for index := 0; index < count; index++ {
+			if !tileGridCellHasResizeBoundary(rowCounts, index) {
+				t.Fatalf("count %d tile %d has no resizable boundary; rows=%v", count, index, rowCounts)
+			}
+		}
+	}
+}
+
 func TestResizeFloatingGeometryUsesPointerDeltaWithoutInitialJump(t *testing.T) {
 	original := Geometry{X: 300, Y: 200, Width: 800, Height: 600}
 	got := resizeFloatingGeometry(original, 0, 0,
@@ -14,6 +26,31 @@ func TestResizeFloatingGeometryUsesPointerDeltaWithoutInitialJump(t *testing.T) 
 		100, 100, 0, 0)
 	if got != original {
 		t.Fatalf("zero-delta resize changed geometry: got %+v, want %+v", got, original)
+	}
+}
+
+func TestTilingResizeEdgesUsesVerticalSplitForThreeWindowStack(t *testing.T) {
+	master, upper, lower := &View{}, &View{}, &View{}
+	server := &Server{config: Config{Tiling: true},
+		fallbackOutput: OutputState{CurrentWorkspace: 1}}
+	server.activeOutput = &server.fallbackOutput
+	for _, view := range []*View{master, upper, lower} {
+		view.Managed, view.Mapped, view.Workspace = true, true, 1
+		view.Output = &server.fallbackOutput
+	}
+	server.views = []*View{master, upper, lower}
+
+	if got := server.tilingResizeEdges(master); got != wlroots.EdgeRight {
+		t.Fatalf("master resize edges = %v, want horizontal", got)
+	}
+	if got := nearestStackResizeEdges(800, 490, 500, 500, true); got != wlroots.EdgeBottom {
+		t.Fatalf("upper stack boundary edges = %v, want bottom", got)
+	}
+	if got := nearestStackResizeEdges(800, 510, 500, 500, false); got != wlroots.EdgeTop {
+		t.Fatalf("lower stack boundary edges = %v, want top", got)
+	}
+	if got := nearestStackResizeEdges(510, 250, 500, 500, true); got != wlroots.EdgeLeft {
+		t.Fatalf("stack left boundary edges = %v, want left", got)
 	}
 }
 

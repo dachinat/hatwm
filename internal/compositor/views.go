@@ -95,7 +95,13 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 
 func (s *Server) handleNewXDGPopup(p wlroots.XDGPopup) {
 	base := p.Base()
-	var owner *View
+	parent := p.Parent()
+	owner := s.popupOwner(p)
+	// xdg-positioner only describes how a popup may be adjusted; the
+	// compositor must provide the actual output constraint box. Without this,
+	// nested menus near an output edge (for example Chrome's History submenu)
+	// are positioned outside the monitor instead of being flipped/slid inward.
+	s.unconstrainXDGPopup(p, owner)
 	base.OnCommit(func(surface wlroots.XDGSurface) {
 		s.notifyFractionalScale(surface.Surface())
 		if surface.InitialCommit() {
@@ -104,7 +110,6 @@ func (s *Server) handleNewXDGPopup(p wlroots.XDGPopup) {
 		s.applyWindowOpacity(owner)
 	})
 
-	parent := p.Parent()
 	// A parentless xdg_popup is not a standalone desktop popup. Layer-shell
 	// clients create it with a NULL xdg parent, then associate it through
 	// zwlr_layer_surface_v1.get_popup. The layer-shell listener will attach it
@@ -127,13 +132,6 @@ func (s *Server) handleNewXDGPopup(p wlroots.XDGPopup) {
 	}
 	st := tree.NewXDGSurface(base)
 	base.SetData(st)
-	root := parent.RootSurface()
-	for _, view := range s.views {
-		if view.Associated && view.clientSurface() == root {
-			owner = view
-			break
-		}
-	}
 	s.applyWindowOpacity(owner)
 }
 

@@ -18,6 +18,37 @@ func TestEveryDenseGridTileHasResizeBoundary(t *testing.T) {
 	}
 }
 
+func TestGridResizeWeightsDoNotChangeAtZeroDelta(t *testing.T) {
+	first, second := resizedTileWeights(1, 1, 650, 350, 400, 100, 0)
+	if first != 1 || second != 1 {
+		t.Fatalf("zero-delta weights = %.4f/%.4f, want 1/1", first, second)
+	}
+}
+
+func TestGridResizeWeightsMoveBoundaryAndPreserveTotal(t *testing.T) {
+	first, second := resizedTileWeights(1.4, 0.6, 700, 300, 100, 100, -100)
+	if first >= 1.4 || second <= 0.6 {
+		t.Fatalf("boundary did not follow pointer: %.4f/%.4f", first, second)
+	}
+	if absFloat(first+second-2) > 0.000001 {
+		t.Fatalf("weight total changed: %.6f", first+second)
+	}
+}
+
+func TestGridResizeWeightsKeepBothTilesReachable(t *testing.T) {
+	first, second := resizedTileWeights(1, 1, 500, 500, 1, 1, 100000)
+	if first <= 0 || second <= 0 {
+		t.Fatalf("resize produced unusable weights: %.4f/%.4f", first, second)
+	}
+}
+
+func TestGridResizeWeightsAccountForClientMinimums(t *testing.T) {
+	first, second := resizedTileWeights(1, 1, 650, 350, 400, 100, 100)
+	if absFloat(first-1.4) > 0.000001 || absFloat(second-0.6) > 0.000001 {
+		t.Fatalf("minimum-aware weights = %.4f/%.4f, want 1.4/0.6", first, second)
+	}
+}
+
 func TestResizeFloatingGeometryUsesPointerDeltaWithoutInitialJump(t *testing.T) {
 	original := Geometry{X: 300, Y: 200, Width: 800, Height: 600}
 	got := resizeFloatingGeometry(original, 0, 0,

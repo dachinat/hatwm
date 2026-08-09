@@ -827,13 +827,14 @@ func (s *Server) processGridResize() {
 		if totalSize <= 1 {
 			return
 		}
-		minimum := maxInt(1, minInt(48, totalSize/2))
-		firstSize := grab.FirstSize + int(math.Round(s.cursor.Y()-s.grabY))
-		firstSize = maxInt(minimum, minInt(firstSize, totalSize-minimum))
-		fraction := float64(firstSize) / float64(totalSize)
-		totalWeight := grab.FirstWeight + grab.SecondWeight
-		grid.RowWeights[grab.Boundary] = totalWeight * fraction
-		grid.RowWeights[grab.Boundary+1] = totalWeight * (1 - fraction)
+		first, second := resizedTileWeights(
+			grab.FirstWeight, grab.SecondWeight,
+			grab.FirstSize, grab.SecondSize,
+			grab.FirstMinimum, grab.SecondMinimum,
+			s.cursor.Y()-s.grabY,
+		)
+		grid.RowWeights[grab.Boundary] = first
+		grid.RowWeights[grab.Boundary+1] = second
 	} else {
 		if grab.Row < 0 || grab.Row >= len(grid.ColumnWeights) ||
 			grab.Boundary < 0 || grab.Boundary+1 >= len(grid.ColumnWeights[grab.Row]) {
@@ -843,15 +844,61 @@ func (s *Server) processGridResize() {
 		if totalSize <= 1 {
 			return
 		}
-		minimum := maxInt(1, minInt(48, totalSize/2))
-		firstSize := grab.FirstSize + int(math.Round(s.cursor.X()-s.grabX))
-		firstSize = maxInt(minimum, minInt(firstSize, totalSize-minimum))
-		fraction := float64(firstSize) / float64(totalSize)
-		totalWeight := grab.FirstWeight + grab.SecondWeight
-		grid.ColumnWeights[grab.Row][grab.Boundary] = totalWeight * fraction
-		grid.ColumnWeights[grab.Row][grab.Boundary+1] = totalWeight * (1 - fraction)
+		first, second := resizedTileWeights(
+			grab.FirstWeight, grab.SecondWeight,
+			grab.FirstSize, grab.SecondSize,
+			grab.FirstMinimum, grab.SecondMinimum,
+			s.cursor.X()-s.grabX,
+		)
+		grid.ColumnWeights[grab.Row][grab.Boundary] = first
+		grid.ColumnWeights[grab.Row][grab.Boundary+1] = second
 	}
 	s.arrange()
+}
+
+// resizedTileWeights applies pointer movement to the existing pair of weights
+// instead of deriving new weights from pixel sizes. Pixel sizes include client
+// minimums, while weightedTileSizes distributes only the remaining space; a
+// pixel-to-weight conversion therefore made unequal-minimum layouts jump on a
+// zero-delta resize.
+func resizedTileWeights(firstWeight, secondWeight float64,
+	firstSize, secondSize, firstMinimum, secondMinimum int, delta float64,
+) (float64, float64) {
+	totalWeight := firstWeight + secondWeight
+	totalSize := firstSize + secondSize
+	if totalWeight <= 0 || totalSize <= 1 {
+		return firstWeight, secondWeight
+	}
+	minimumSize := maxInt(1, minInt(48, totalSize/2))
+	targetFirstSize := firstSize + int(math.Round(delta))
+	targetFirstSize = maxInt(minimumSize,
+		minInt(targetFirstSize, totalSize-minimumSize))
+	appliedDelta := targetFirstSize - firstSize
+	if appliedDelta == 0 {
+		return firstWeight, secondWeight
+	}
+	firstMinimum = maxInt(1, firstMinimum)
+	secondMinimum = maxInt(1, secondMinimum)
+	if firstMinimum+secondMinimum >= totalSize {
+		firstMinimum, secondMinimum = 1, 1
+	}
+	remaining := totalSize - firstMinimum - secondMinimum
+	firstExtra := targetFirstSize - firstMinimum
+	if firstExtra < 0 {
+		firstExtra = 0
+	}
+	if firstExtra > remaining {
+		firstExtra = remaining
+	}
+	first := totalWeight * float64(firstExtra) / float64(remaining)
+	minimumWeight := totalWeight / float64(maxInt(2, totalSize))
+	if first < minimumWeight {
+		first = minimumWeight
+	}
+	if first > totalWeight-minimumWeight {
+		first = totalWeight - minimumWeight
+	}
+	return first, totalWeight - first
 }
 
 func (s *Server) tilingResizeEdges(v *View) wlroots.Edges {
@@ -1001,6 +1048,8 @@ func (s *Server) prepareGridResize(layout *tileLayoutState, views []*View, v *Vi
 		grab.SecondWeight = grid.RowWeights[chosen.boundary+1]
 		grab.FirstSize = s.gridRowSize(grid, views, chosen.boundary)
 		grab.SecondSize = s.gridRowSize(grid, views, chosen.boundary+1)
+		grab.FirstMinimum = s.gridRowMinimum(grid, views, chosen.boundary)
+		grab.SecondMinimum = s.gridRowMinimum(grid, views, chosen.boundary+1)
 	} else {
 		weights := grid.ColumnWeights[cell.row]
 		grab.FirstWeight = weights[chosen.boundary]
@@ -1009,6 +1058,10 @@ func (s *Server) prepareGridResize(layout *tileLayoutState, views []*View, v *Vi
 		second := views[cell.offset+chosen.boundary+1].geometry()
 		grab.FirstSize = first.Width + 2*maxInt(0, s.viewBorderSize(views[cell.offset+chosen.boundary]))
 		grab.SecondSize = second.Width + 2*maxInt(0, s.viewBorderSize(views[cell.offset+chosen.boundary+1]))
+		firstMinimum, _ := views[cell.offset+chosen.boundary].minimumSize()
+		secondMinimum, _ := views[cell.offset+chosen.boundary+1].minimumSize()
+		grab.FirstMinimum = firstMinimum + 2*maxInt(0, s.config.BorderSize)
+		grab.SecondMinimum = secondMinimum + 2*maxInt(0, s.config.BorderSize)
 	}
 	s.grabGrid = grab
 	return chosen.edges, true
@@ -1023,6 +1076,26 @@ func (s *Server) gridRowSize(grid *tileGridState, views []*View, row int) int {
 		if candidateRow == row && offset < len(views) {
 			g := views[offset].geometry()
 			return g.Height + 2*maxInt(0, s.viewBorderSize(views[offset]))
+		}
+		offset += columns
+	}
+	return 1
+}
+
+func (s *Server) gridRowMinimum(grid *tileGridState, views []*View, row int) int {
+	if grid == nil || row < 0 || row >= len(grid.RowCounts) {
+		return 1
+	}
+	offset := 0
+	for candidateRow, columns := range grid.RowCounts {
+		if candidateRow == row {
+			minimum := 1
+			for i := 0; i < columns && offset+i < len(views); i++ {
+				_, height := views[offset+i].minimumSize()
+				minimum = maxInt(minimum,
+					height+2*maxInt(0, s.config.BorderSize))
+			}
+			return minimum
 		}
 		offset += columns
 	}

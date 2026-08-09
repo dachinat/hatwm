@@ -35,15 +35,17 @@ type tileLayoutState struct {
 }
 
 type tileGridResizeGrab struct {
-	Active       bool
-	Vertical     bool
-	Row          int
-	Boundary     int
-	FirstWeight  float64
-	SecondWeight float64
-	FirstSize    int
-	SecondSize   int
-	Layout       *tileLayoutState
+	Active        bool
+	Vertical      bool
+	Row           int
+	Boundary      int
+	FirstWeight   float64
+	SecondWeight  float64
+	FirstSize     int
+	SecondSize    int
+	FirstMinimum  int
+	SecondMinimum int
+	Layout        *tileLayoutState
 }
 
 type viewSceneLayer uint8

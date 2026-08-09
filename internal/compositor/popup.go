@@ -71,6 +71,14 @@ func (s *Server) popupOwner(popup wlroots.XDGPopup) *View {
 	return nil
 }
 
+func (s *Server) popupLayerOwner(popup wlroots.XDGPopup) *LayerSurface {
+	root := popupRootParentSurface(popup)
+	if root.Nil() {
+		return nil
+	}
+	return s.layerSurfaceForSurface(root)
+}
+
 // popupConstraintBox converts an output box from layout coordinates into the
 // root toplevel surface coordinate system required by
 // wlr_xdg_popup_unconstrain_from_box. sceneX/sceneY are the layout coordinates
@@ -86,6 +94,24 @@ func popupConstraintBox(output usableBox, sceneX, sceneY, geometryX, geometryY i
 	}
 }
 
+func layerPopupConstraintBox(output usableBox, layerX, layerY int) usableBox {
+	return popupConstraintBox(output, layerX, layerY, 0, 0)
+}
+
+func unconstrainXDGPopupFromBox(popup wlroots.XDGPopup, box usableBox) {
+	ptr := (*C.struct_wlr_xdg_popup)(xdgPopupPointer(popup))
+	if ptr == nil || box.width <= 0 || box.height <= 0 {
+		return
+	}
+	cbox := C.struct_wlr_box{
+		x:      C.int(box.x),
+		y:      C.int(box.y),
+		width:  C.int(box.width),
+		height: C.int(box.height),
+	}
+	C.wlr_xdg_popup_unconstrain_from_box(ptr, &cbox)
+}
+
 func (s *Server) unconstrainXDGPopup(popup wlroots.XDGPopup, owner *View) {
 	if owner == nil || owner.IsXWayland || owner.TopLevel.Nil() {
 		return
@@ -98,16 +124,13 @@ func (s *Server) unconstrainXDGPopup(popup wlroots.XDGPopup, owner *View) {
 	sceneX, sceneY, _ := sceneTreeLayoutCoords(owner.SurfaceTree)
 	geometry := owner.TopLevel.Base().Geometry()
 	box := popupConstraintBox(output.Full, sceneX, sceneY, geometry.X, geometry.Y)
+	unconstrainXDGPopupFromBox(popup, box)
+}
 
-	ptr := (*C.struct_wlr_xdg_popup)(xdgPopupPointer(popup))
-	if ptr == nil {
+func (s *Server) unconstrainLayerXDGPopup(popup wlroots.XDGPopup, layer *LayerSurface) {
+	if layer == nil || layer.output == nil || layer.scene == nil {
 		return
 	}
-	cbox := C.struct_wlr_box{
-		x:      C.int(box.x),
-		y:      C.int(box.y),
-		width:  C.int(box.width),
-		height: C.int(box.height),
-	}
-	C.wlr_xdg_popup_unconstrain_from_box(ptr, &cbox)
+	box := layerPopupConstraintBox(layer.output.Full, layer.lastX, layer.lastY)
+	unconstrainXDGPopupFromBox(popup, box)
 }

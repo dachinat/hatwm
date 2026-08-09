@@ -19,3 +19,12 @@ func TestPopupConstraintBoxIncludesWindowGeometryOffset(t *testing.T) {
 		t.Fatalf("unexpected popup constraint box: got %+v, want %+v", got, want)
 	}
 }
+
+func TestLayerPopupConstraintBoxUsesOutputLayoutOrigin(t *testing.T) {
+	output := usableBox{x: 1920, y: 200, width: 2560, height: 1440}
+	got := layerPopupConstraintBox(output, 4300, 200)
+	want := usableBox{x: -2380, y: 0, width: 2560, height: 1440}
+	if got != want {
+		t.Fatalf("unexpected layer popup constraint box: got %+v, want %+v", got, want)
+	}
+}

@@ -26,6 +26,9 @@ static inline void hatwm_node_destroy(struct wlr_scene_node *n) {
 static inline void hatwm_node_raise(struct wlr_scene_node *n) {
     wlr_scene_node_raise_to_top(n);
 }
+static inline void hatwm_node_lower(struct wlr_scene_node *n) {
+    wlr_scene_node_lower_to_bottom(n);
+}
 */
 import "C"
 
@@ -45,6 +48,12 @@ type WindowDecoration struct {
 	// destroys/recreates them during normal commits or resizes.
 	Corners []*C.struct_wlr_scene_rect
 
+	// CornerFills are outer-circle slices below the client surface. CSD clients
+	// often leave their rounded corners transparent with a radius that differs
+	// from HatWM's border radius. These prevent the wallpaper from showing
+	// through the inside of the border without covering client content.
+	CornerFills []*C.struct_wlr_scene_rect
+
 	ready bool
 }
 
@@ -59,6 +68,14 @@ func sceneRect(parent *C.struct_wlr_scene_tree, color [4]C.float) *C.struct_wlr_
 		// inner edge. Keep decorations above the surface so the client cannot
 		// cover that part of the border at larger radii.
 		C.wlr_scene_node_raise_to_top(&r.node)
+	}
+	return r
+}
+
+func sceneRectBelow(parent *C.struct_wlr_scene_tree, color [4]C.float) *C.struct_wlr_scene_rect {
+	r := C.wlr_scene_rect_create(parent, 1, 1, &color[0])
+	if r != nil {
+		C.hatwm_node_lower(&r.node)
 	}
 	return r
 }
@@ -89,6 +106,10 @@ func (s *Server) ensureCornerCapacity(v *View, rows int, color [4]C.float) {
 	for len(v.Decor.Corners) < needed {
 		v.Decor.Corners = append(v.Decor.Corners, sceneRect(parent, color))
 	}
+	for len(v.Decor.CornerFills) < needed {
+		v.Decor.CornerFills = append(
+			v.Decor.CornerFills, sceneRectBelow(parent, color))
+	}
 }
 
 func (s *Server) destroyDecoration(v *View) {
@@ -107,7 +128,14 @@ func (s *Server) destroyDecoration(v *View) {
 			v.Decor.Corners[i] = nil
 		}
 	}
+	for i, rect := range v.Decor.CornerFills {
+		if rect != nil {
+			C.hatwm_node_destroy(&rect.node)
+			v.Decor.CornerFills[i] = nil
+		}
+	}
 	v.Decor.Corners = nil
+	v.Decor.CornerFills = nil
 	v.Decor.ready = false
 }
 
@@ -135,6 +163,11 @@ func (s *Server) hideDecoration(v *View) {
 		}
 	}
 	for _, r := range v.Decor.Corners {
+		if r != nil {
+			C.hatwm_node_enabled(&r.node, false)
+		}
+	}
+	for _, r := range v.Decor.CornerFills {
 		if r != nil {
 			C.hatwm_node_enabled(&r.node, false)
 		}
@@ -231,6 +264,11 @@ func (s *Server) updateDecoration(v *View) {
 				C.hatwm_node_enabled(&r.node, false)
 			}
 		}
+		for _, r := range v.Decor.CornerFills {
+			if r != nil {
+				C.hatwm_node_enabled(&r.node, false)
+			}
+		}
 		return
 	}
 
@@ -275,6 +313,17 @@ func (s *Server) updateDecoration(v *View) {
 		end := int(math.Ceil(xInner))
 		sliceW := end - start
 		base := dy * 4
+		fillW := radius - start
+		if fillW > 0 {
+			setRect(v.Decor.CornerFills[base+0], start, dy, fillW, 1, c, true)
+			setRect(v.Decor.CornerFills[base+1], totalW-radius, dy, fillW, 1, c, true)
+			setRect(v.Decor.CornerFills[base+2], start, totalH-1-dy, fillW, 1, c, true)
+			setRect(v.Decor.CornerFills[base+3], totalW-radius, totalH-1-dy, fillW, 1, c, true)
+		} else {
+			for j := 0; j < 4; j++ {
+				setRect(v.Decor.CornerFills[base+j], 0, 0, 0, 0, c, false)
+			}
+		}
 		if sliceW <= 0 {
 			for j := 0; j < 4; j++ {
 				setRect(v.Decor.Corners[base+j], 0, 0, 0, 0, c, false)
@@ -293,6 +342,11 @@ func (s *Server) updateDecoration(v *View) {
 	for i := used; i < len(v.Decor.Corners); i++ {
 		if v.Decor.Corners[i] != nil {
 			C.hatwm_node_enabled(&v.Decor.Corners[i].node, false)
+		}
+	}
+	for i := used; i < len(v.Decor.CornerFills); i++ {
+		if v.Decor.CornerFills[i] != nil {
+			C.hatwm_node_enabled(&v.Decor.CornerFills[i].node, false)
 		}
 	}
 }

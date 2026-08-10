@@ -275,10 +275,14 @@ func (s *Server) applyWindowMetadata(v *View) {
 	}
 	oldTitle := v.Title
 	s.applyWindowRules(v, false)
-	if !v.Mapped || oldTitle == "" || v.Title == "" || oldTitle == v.Title ||
-		!v.RuleActions.HasUrgentOnTitleChange ||
-		!v.RuleActions.UrgentOnTitleChange || s.viewVisible(v) {
+	if !shouldMarkUrgentOnTitleChange(v, oldTitle, s.viewVisible(v)) {
 		return
 	}
 	s.setViewUrgent(v, true)
+}
+
+func shouldMarkUrgentOnTitleChange(v *View, oldTitle string, visible bool) bool {
+	return v != nil && v.Mapped && !visible && oldTitle != "" && v.Title != "" &&
+		oldTitle != v.Title && v.RuleActions.HasUrgentOnTitleChange &&
+		v.RuleActions.UrgentOnTitleChange
 }

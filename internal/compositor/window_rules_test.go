@@ -68,6 +68,29 @@ func TestWindowRuleParsesUrgentOnTitleChange(t *testing.T) {
 	}
 }
 
+func TestUrgentOnTitleChangeOnlyMarksHiddenMappedWindows(t *testing.T) {
+	view := &View{
+		Mapped: true,
+		Title:  "file.txt — Zed",
+		RuleActions: WindowRuleActions{
+			UrgentOnTitleChange: true, HasUrgentOnTitleChange: true,
+		},
+	}
+	if !shouldMarkUrgentOnTitleChange(view, "Zed", false) {
+		t.Fatal("hidden mapped window with a changed title was not marked")
+	}
+	if shouldMarkUrgentOnTitleChange(view, "Zed", true) {
+		t.Fatal("visible window was marked urgent")
+	}
+	if shouldMarkUrgentOnTitleChange(view, view.Title, false) {
+		t.Fatal("unchanged title was marked urgent")
+	}
+	view.RuleActions.UrgentOnTitleChange = false
+	if shouldMarkUrgentOnTitleChange(view, "Zed", false) {
+		t.Fatal("disabled rule action marked the window urgent")
+	}
+}
+
 func TestRuleGeometryImpliesFloatingUnlessExplicitlyDisabled(t *testing.T) {
 	view := &View{RuleActions: WindowRuleActions{Width: 500, HasWidth: true}}
 	if !view.shouldAutoFloat() {

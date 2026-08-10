@@ -22,9 +22,9 @@ This is a clean-room core focused on predictable ownership and a small stable fe
 
 ## Screenshot
 
-| Desktop | Calendar popup |
-| :---: | :---: |
-| [![HatWM desktop with a terminal](docs/screenshots/hatwm-desktop.png)](docs/screenshots/hatwm-desktop.png) | [![HatWM desktop with the calendar open](docs/screenshots/hatwm-calendar.png)](docs/screenshots/hatwm-calendar.png) |
+| Desktop | Calendar popup | Window switcher |
+| :---: | :---: | :---: |
+| [![HatWM desktop with a terminal](docs/screenshots/hatwm-desktop.png)](docs/screenshots/hatwm-desktop.png) | [![HatWM desktop with the calendar open](docs/screenshots/hatwm-calendar.png)](docs/screenshots/hatwm-calendar.png) | [![HatWM window switcher](docs/screenshots/screenshot-2026-08-10_20-30-08.png)](docs/screenshots/screenshot-2026-08-10_20-30-08.png) |
 
 Click the preview to view the full-resolution screenshot.
 

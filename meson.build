@@ -81,6 +81,7 @@ hatwm_sources = files(
   'internal/compositor/config.go',
   'internal/compositor/cursor_image.go',
   'internal/compositor/decorations.go',
+  'internal/compositor/decorations_test.go',
   'internal/compositor/desktop_protocols.go',
   'internal/compositor/foreign_toplevel.go',
   'internal/compositor/input.go',

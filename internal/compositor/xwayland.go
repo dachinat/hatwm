@@ -218,8 +218,7 @@ func (s *Server) handleXWaylandCommit(
 		return
 	}
 	wasFloating, oldWorkspace := view.AutoFloating, view.Workspace
-	view.refreshWindowIdentity()
-	s.applyWindowRules(view, false)
+	s.applyWindowMetadata(view)
 	if wasFloating != view.AutoFloating || oldWorkspace != view.Workspace {
 		s.arrange()
 	}
@@ -462,8 +461,7 @@ func hatwmGoXWaylandMetadataChanged(surface unsafe.Pointer) {
 		return
 	}
 	wasFloating, oldWorkspace := v.AutoFloating, v.Workspace
-	v.refreshWindowIdentity()
-	activeServer.applyWindowRules(v, false)
+	activeServer.applyWindowMetadata(v)
 	if v.Mapped && (wasFloating != v.AutoFloating || oldWorkspace != v.Workspace) {
 		activeServer.arrange()
 		activeServer.emitIPCEvent("window_updated", activeServer.ipcWindow(v))

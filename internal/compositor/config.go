@@ -153,6 +153,12 @@ Mod4+Shift+Escape = exit
 # centered = true
 # keep_above = true
 # opacity = 1.0
+
+# Some applications reuse a window on another workspace without requesting
+# activation. Enable this fallback per application instead of globally.
+# [window-rule zed]
+# app_id = dev.zed.Zed
+# urgent_on_title_change = true
 `
 
 func defaultConfig() Config {

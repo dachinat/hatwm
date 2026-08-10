@@ -129,7 +129,7 @@ func hatwmGoWindowMetadataChanged(token C.uintptr_t) {
 		return
 	}
 	wasFloating, oldWorkspace := v.AutoFloating, v.Workspace
-	v.Server.applyWindowRules(v, false)
+	v.Server.applyWindowMetadata(v)
 	if v.Mapped && (wasFloating != v.AutoFloating || oldWorkspace != v.Workspace) {
 		v.Server.arrange()
 		v.Server.emitIPCEvent("window_updated", v.Server.ipcWindow(v))

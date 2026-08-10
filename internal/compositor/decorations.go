@@ -153,6 +153,29 @@ func setRect(rect *C.struct_wlr_scene_rect, x, y, w, h int, color [4]C.float, en
 	C.hatwm_node_enabled(&rect.node, true)
 }
 
+// decorationRadii treats configured rounding as the client-facing (inner)
+// radius. The border grows outward from it. Treating the setting as the outer
+// radius makes the inner curve too tight by borderSize pixels and leaves a
+// conspicuous wedge around clients which provide their own transparent CSD
+// corners.
+func decorationRadii(rounding, borderSize, clientW, clientH int) (outer, inner int) {
+	if rounding <= 0 || borderSize <= 0 || clientW <= 0 || clientH <= 0 {
+		return 0, 0
+	}
+	maxInner := clientW / 2
+	if clientH/2 < maxInner {
+		maxInner = clientH / 2
+	}
+	inner = rounding
+	if inner > maxInner {
+		inner = maxInner
+	}
+	if inner < 0 {
+		inner = 0
+	}
+	return inner + borderSize, inner
+}
+
 func (s *Server) hideDecoration(v *View) {
 	if v == nil || !v.Decor.ready {
 		return
@@ -232,25 +255,12 @@ func (s *Server) updateDecoration(v *View) {
 	}
 	c := [4]C.float{C.float(color[0]), C.float(color[1]), C.float(color[2]), C.float(color[3])}
 
-	radius := s.viewBorderRounding(v)
-	maxRadius := totalW / 2
-	if totalH/2 < maxRadius {
-		maxRadius = totalH / 2
-	}
-	if radius > maxRadius {
-		radius = maxRadius
-	}
-	if radius < 0 {
-		radius = 0
-	}
+	radius, clientRadius := decorationRadii(
+		s.viewBorderRounding(v), b, w, h)
 
 	// X11 clients usually submit an opaque rectangular buffer. Shape it to the
 	// border's inner curve; drawing a rounded ring alone leaves square client
 	// pixels visible through the outside of that ring.
-	clientRadius := radius - b
-	if clientRadius < 0 {
-		clientRadius = 0
-	}
 	v.setXWaylandRoundedClip(clientRadius)
 
 	if radius == 0 {
@@ -282,10 +292,7 @@ func (s *Server) updateDecoration(v *View) {
 	used := radius * 4
 
 	outerR := float64(radius)
-	innerRadius := radius - b
-	if innerRadius < 0 {
-		innerRadius = 0
-	}
+	innerRadius := clientRadius
 	innerR := float64(innerRadius)
 
 	for dy := 0; dy < radius; dy++ {

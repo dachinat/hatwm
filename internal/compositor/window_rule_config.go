@@ -23,36 +23,38 @@ type WindowRule struct {
 }
 
 type WindowRuleActions struct {
-	Floating          bool
-	HasFloating       bool
-	Centered          bool
-	HasCentered       bool
-	KeepAbove         bool
-	HasKeepAbove      bool
-	Opacity           float64
-	HasOpacity        bool
-	Workspace         int
-	HasWorkspace      bool
-	Output            string
-	HasOutput         bool
-	Width             int
-	HasWidth          bool
-	Height            int
-	HasHeight         bool
-	X                 int
-	HasX              bool
-	Y                 int
-	HasY              bool
-	Fullscreen        bool
-	HasFullscreen     bool
-	Focus             bool
-	HasFocus          bool
-	Border            bool
-	HasBorder         bool
-	BorderSize        int
-	HasBorderSize     bool
-	BorderRounding    int
-	HasBorderRounding bool
+	Floating               bool
+	HasFloating            bool
+	Centered               bool
+	HasCentered            bool
+	KeepAbove              bool
+	HasKeepAbove           bool
+	Opacity                float64
+	HasOpacity             bool
+	Workspace              int
+	HasWorkspace           bool
+	Output                 string
+	HasOutput              bool
+	Width                  int
+	HasWidth               bool
+	Height                 int
+	HasHeight              bool
+	X                      int
+	HasX                   bool
+	Y                      int
+	HasY                   bool
+	Fullscreen             bool
+	HasFullscreen          bool
+	Focus                  bool
+	HasFocus               bool
+	UrgentOnTitleChange    bool
+	HasUrgentOnTitleChange bool
+	Border                 bool
+	HasBorder              bool
+	BorderSize             int
+	HasBorderSize          bool
+	BorderRounding         int
+	HasBorderRounding      bool
 }
 
 func windowRuleSectionName(section string) (string, bool) {
@@ -98,6 +100,9 @@ func parseWindowRuleSetting(rule *WindowRule, key, value string) error {
 		return parseRuleBool(value, &actions.Fullscreen, &actions.HasFullscreen)
 	case "focus":
 		return parseRuleBool(value, &actions.Focus, &actions.HasFocus)
+	case "urgent_on_title_change":
+		return parseRuleBool(value, &actions.UrgentOnTitleChange,
+			&actions.HasUrgentOnTitleChange)
 	case "border":
 		return parseRuleBool(value, &actions.Border, &actions.HasBorder)
 	case "opacity":

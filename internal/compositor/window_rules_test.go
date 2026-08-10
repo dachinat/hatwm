@@ -39,6 +39,7 @@ func TestResolveWindowRulesMergesInConfigurationOrder(t *testing.T) {
 			Floating: true, HasFloating: true,
 			Opacity: 0.8, HasOpacity: true,
 			Workspace: 2, HasWorkspace: true,
+			UrgentOnTitleChange: true, HasUrgentOnTitleChange: true,
 		}},
 		{Name: "specific title", Title: "Editor", Actions: WindowRuleActions{
 			Opacity: 1, HasOpacity: true,
@@ -51,8 +52,19 @@ func TestResolveWindowRulesMergesInConfigurationOrder(t *testing.T) {
 		!actions.HasFloating || !actions.Floating ||
 		!actions.HasOpacity || actions.Opacity != 1 ||
 		!actions.HasWorkspace || actions.Workspace != 2 ||
+		!actions.HasUrgentOnTitleChange || !actions.UrgentOnTitleChange ||
 		!actions.HasBorder || actions.Border {
 		t.Fatalf("unexpected merged actions (%s): %+v", names, actions)
+	}
+}
+
+func TestWindowRuleParsesUrgentOnTitleChange(t *testing.T) {
+	rule := WindowRule{Name: "zed"}
+	if err := parseWindowRuleSetting(&rule, "urgent_on_title_change", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if !rule.Actions.HasUrgentOnTitleChange || !rule.Actions.UrgentOnTitleChange {
+		t.Fatalf("urgent action was not parsed: %+v", rule.Actions)
 	}
 }
 

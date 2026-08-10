@@ -228,6 +228,10 @@ workspace = 3
 focus = false
 border = true
 border_rounding = 10
+
+[window-rule zed]
+app_id = dev.zed.Zed
+urgent_on_title_change = true
 ```
 
 Matchers are `app_id`, `class`, `instance`, `title`, `dialog`, and `modal`.
@@ -252,6 +256,7 @@ Actions are:
 | `position` | `X,Y` | set both coordinates |
 | `fullscreen` | `true` or `false` | request or suppress fullscreen presentation |
 | `focus` | `true` or `false` | allow or prevent focus when the window maps |
+| `urgent_on_title_change` | `true` or `false` | mark a hidden workspace urgent when the window title changes |
 | `border` | `true` or `false` | enable or disable the server-side border |
 | `border_size` | `0`–`32` | override border width |
 | `border_rounding` | `0`–`128` | override corner radius |
@@ -261,6 +266,11 @@ unless a rule explicitly sets `floating = false`. Explicit coordinates
 override centering on their respective axes. Unknown output names fall back to
 the primary usable area and are reported in the compositor log. Rules are
 reapplied when the configuration is reloaded.
+
+`urgent_on_title_change` is a per-application fallback for clients that reuse
+an existing window but do not send an XDG activation request. Keep it disabled
+for general rules because background applications can change titles without
+requesting attention.
 
 ### Core settings
 

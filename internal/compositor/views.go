@@ -79,7 +79,7 @@ func (s *Server) handleNewXDGTopLevel(top wlroots.XDGTopLevel) {
 			s.applyWindowOpacity(v)
 			wasAutoFloating := v.AutoFloating
 			oldWorkspace := v.Workspace
-			s.applyWindowRules(v, false)
+			s.applyWindowMetadata(v)
 			if s.isFloatingView(v) && !s.viewFullscreen(v) {
 				s.rememberFloatingGeometry(v)
 			}

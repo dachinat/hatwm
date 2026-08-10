@@ -221,6 +221,7 @@ size = 420x510
 position = 30,40
 fullscreen = false
 focus = true
+urgent_on_title_change = true
 border = false
 
 [keybindings]
@@ -264,6 +265,7 @@ panel = hatwmpanel
 		!a.HasWidth || a.Width != 420 || !a.HasHeight || a.Height != 510 ||
 		!a.HasX || a.X != 30 || !a.HasY || a.Y != 40 ||
 		!a.HasFullscreen || a.Fullscreen || !a.HasFocus || !a.Focus ||
+		!a.HasUrgentOnTitleChange || !a.UrgentOnTitleChange ||
 		!a.HasBorder || a.Border {
 		t.Fatalf("unexpected parsed window rule: %+v", rule)
 	}

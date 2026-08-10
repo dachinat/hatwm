@@ -70,6 +70,10 @@ func mergeWindowRuleActions(target *WindowRuleActions, source WindowRuleActions)
 	if source.HasFocus {
 		target.Focus, target.HasFocus = source.Focus, true
 	}
+	if source.HasUrgentOnTitleChange {
+		target.UrgentOnTitleChange, target.HasUrgentOnTitleChange =
+			source.UrgentOnTitleChange, true
+	}
 	if source.HasBorder {
 		target.Border, target.HasBorder = source.Border, true
 	}
@@ -259,4 +263,22 @@ func (s *Server) reapplyWindowRules() {
 	for _, v := range s.views {
 		s.applyWindowRules(v, false)
 	}
+}
+
+// applyWindowMetadata applies rules after client metadata changes and provides
+// an opt-in fallback for clients that reuse a hidden window without sending an
+// xdg-activation request. Title changes are ignored during initial mapping and
+// while the window is visible, where normal focus behavior is sufficient.
+func (s *Server) applyWindowMetadata(v *View) {
+	if v == nil {
+		return
+	}
+	oldTitle := v.Title
+	s.applyWindowRules(v, false)
+	if !v.Mapped || oldTitle == "" || v.Title == "" || oldTitle == v.Title ||
+		!v.RuleActions.HasUrgentOnTitleChange ||
+		!v.RuleActions.UrgentOnTitleChange || s.viewVisible(v) {
+		return
+	}
+	s.setViewUrgent(v, true)
 }

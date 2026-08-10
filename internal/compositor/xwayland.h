@@ -57,6 +57,9 @@ void hatwm_xwayland_surface_set_window_state(
     struct wlr_xwayland_surface *surface,
     bool maximized,
     bool fullscreen);
+void hatwm_xwayland_surface_set_minimized(
+    struct wlr_xwayland_surface *surface,
+    bool minimized);
 void hatwm_xwayland_surface_set_rounded_clip(
     struct hatwm_xwayland *xwayland,
     struct wlr_xwayland_surface *surface,

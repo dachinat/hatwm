@@ -50,8 +50,17 @@ func (s *Server) removeViewFromHat(v *View) bool {
 }
 
 func (s *Server) stashFocusedInHat() bool {
-	v := s.focusedView()
-	if v == nil || !v.Managed || !v.Mapped || v.InHat {
+	return s.stashViewInHat(s.focusedView())
+}
+
+func canStashViewInHat(v *View) bool {
+	return v != nil && v.Managed && v.Mapped && !v.InHat
+}
+
+// stashViewInHat stashes the requested view rather than relying on keyboard
+// focus. Client minimize requests can arrive while another view is focused.
+func (s *Server) stashViewInHat(v *View) bool {
+	if !canStashViewInHat(v) {
 		return false
 	}
 	output := s.ensureViewOutput(v)
@@ -69,6 +78,7 @@ func (s *Server) stashFocusedInHat() bool {
 		output.Focused = nil
 	}
 	s.addViewToHat(v)
+	v.setXWaylandMinimized(true)
 	v.Animation.Running = false
 	v.RootTree.Node().SetEnabled(false)
 	C.hatwm_clear_keyboard_focus((*C.struct_wlr_seat)(seatPointer(s.seat)))
@@ -108,8 +118,12 @@ func (s *Server) restoreHatWindowByID(id uint64) bool {
 	return false
 }
 
+func canRestoreViewFromHat(v *View) bool {
+	return v != nil && v.Mapped && v.InHat
+}
+
 func (s *Server) restoreHatWindow(v *View) bool {
-	if v == nil || !v.Mapped || !v.InHat || !s.removeViewFromHat(v) {
+	if !canRestoreViewFromHat(v) || !s.removeViewFromHat(v) {
 		return false
 	}
 	output := s.currentOutputState()
@@ -121,6 +135,7 @@ func (s *Server) restoreHatWindow(v *View) bool {
 	v.Output = output
 	v.Workspace = output.CurrentWorkspace
 	v.Urgent = false
+	v.setXWaylandMinimized(false)
 	s.activeOutput = output
 	s.moveViewFront(v)
 	s.arrange()

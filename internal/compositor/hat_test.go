@@ -54,3 +54,44 @@ func TestRestoreHatWindowArgumentSelectsByID(t *testing.T) {
 		t.Fatal("empty Hat accepted a restore request")
 	}
 }
+
+func TestOnlyManagedMappedWindowsCanEnterHat(t *testing.T) {
+	tests := []struct {
+		name string
+		view *View
+		want bool
+	}{
+		{name: "nil"},
+		{name: "unmanaged", view: &View{Mapped: true}},
+		{name: "unmapped", view: &View{Managed: true}},
+		{name: "already stashed", view: &View{Managed: true, Mapped: true, InHat: true}},
+		{name: "eligible", view: &View{Managed: true, Mapped: true}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := canStashViewInHat(test.view); got != test.want {
+				t.Fatalf("canStashViewInHat() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestOnlyMappedHatWindowsCanBeRestored(t *testing.T) {
+	tests := []struct {
+		name string
+		view *View
+		want bool
+	}{
+		{name: "nil"},
+		{name: "ordinary mapped window", view: &View{Mapped: true}},
+		{name: "unmapped Hat entry", view: &View{InHat: true}},
+		{name: "restorable", view: &View{Mapped: true, InHat: true}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := canRestoreViewFromHat(test.view); got != test.want {
+				t.Fatalf("canRestoreViewFromHat() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

@@ -308,6 +308,21 @@ func (s *Server) handleXWaylandRequestMaximize(
 	s.handleViewMaximizeRequest(view, maximized)
 }
 
+func (s *Server) handleXWaylandRequestMinimize(
+	ptr *C.struct_wlr_xwayland_surface, minimized bool) {
+	view := s.xwaylandView(ptr)
+	if view == nil {
+		return
+	}
+	if minimized {
+		s.stashViewInHat(view)
+		return
+	}
+	if view.InHat {
+		s.restoreHatWindow(view)
+	}
+}
+
 func (s *Server) handleXWaylandRequestActivate(
 	ptr *C.struct_wlr_xwayland_surface) {
 	view := s.xwaylandView(ptr)
@@ -448,6 +463,23 @@ func hatwmGoXWaylandRequestMaximize(
 			(*C.struct_wlr_xwayland_surface)(surface),
 			bool(maximized))
 	}
+}
+
+//export hatwmGoXWaylandRequestMinimize
+func hatwmGoXWaylandRequestMinimize(
+	surface unsafe.Pointer, minimized C.bool) {
+	if activeServer != nil {
+		activeServer.handleXWaylandRequestMinimize(
+			(*C.struct_wlr_xwayland_surface)(surface), bool(minimized))
+	}
+}
+
+func (v *View) setXWaylandMinimized(minimized bool) {
+	if v == nil || !v.IsXWayland || v.XWayland == nil {
+		return
+	}
+	C.hatwm_xwayland_surface_set_minimized(
+		(*C.struct_wlr_xwayland_surface)(v.XWayland), C.bool(minimized))
 }
 
 //export hatwmGoXWaylandMetadataChanged

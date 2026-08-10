@@ -118,6 +118,12 @@ func TestAppearanceSettings(t *testing.T) {
 	}
 }
 
+func TestDefaultAppearanceOffersMinimizeToHat(t *testing.T) {
+	if got := defaultConfig().WindowButtonLayout; got != "appmenu:minimize,maximize,close" {
+		t.Fatalf("default window button layout = %q", got)
+	}
+}
+
 func TestParseColorFormats(t *testing.T) {
 	tests := []struct {
 		name  string

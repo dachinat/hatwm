@@ -182,8 +182,9 @@ func NewServer() (*Server, error) {
 	}
 
 	// xdg_toplevel.wm_capabilities was added in xdg-shell v5. Advertise v6,
-	// which wlroots 0.18 supports, so clients can hide unsupported controls
-	// such as minimize. Older clients continue to negotiate lower versions.
+	// which wlroots 0.18 supports, so clients can discover HatWM's maximize,
+	// minimize-to-Hat, and fullscreen controls. Older clients continue to
+	// negotiate lower versions.
 	s.xdgShell = s.display.XDGShellCreate(6)
 	// go-wlroots installs per-XDG-surface listener cleanup from OnNewSurface.
 	// Keep this subscription even though HatWM handles role-specific setup via

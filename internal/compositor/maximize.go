@@ -120,6 +120,17 @@ func hatwmGoRequestFullscreen(token C.uintptr_t, fullscreen C.bool) {
 	v.Server.setViewFullscreen(v, bool(fullscreen))
 }
 
+//export hatwmGoRequestMinimize
+func hatwmGoRequestMinimize(token C.uintptr_t) {
+	maximizeRegistry.RLock()
+	v := maximizeRegistry.views[uintptr(token)]
+	maximizeRegistry.RUnlock()
+	if v == nil || v.Server == nil {
+		return
+	}
+	v.Server.stashViewInHat(v)
+}
+
 //export hatwmGoWindowMetadataChanged
 func hatwmGoWindowMetadataChanged(token C.uintptr_t) {
 	maximizeRegistry.RLock()

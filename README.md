@@ -185,7 +185,7 @@ cursor_size = 24
 font_name = Sans 10
 # qt_style = Fusion
 # qt_platform_theme = qt6ct
-window_button_layout = appmenu:maximize,close
+window_button_layout = appmenu:minimize,maximize,close
 ```
 
 `color_scheme` accepts `default`, `dark`, or `light`. HatWM reports that
@@ -200,10 +200,10 @@ themselves whether to reload them. The Qt fields are optional because Qt style
 and platform-theme plugins must be installed separately. Cursor settings
 remain accepted under `[settings]` for backward compatibility.
 
-HatWM does not implement window minimization, so it omits the minimize
-capability from native Wayland toplevels. `window_button_layout` provides the
-equivalent GTK/XWayland fallback; its default keeps maximize and close while
-removing the non-functional minimize button.
+HatWM treats window minimization as stashing the window in The Hat. Native
+Wayland and XWayland minimize buttons both use that behavior, and the window
+can be restored from The Hat picker. Activation or unminimize requests from a
+tray icon also restore a stashed window.
 
 ### Window rules
 

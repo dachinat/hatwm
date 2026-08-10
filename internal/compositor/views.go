@@ -327,6 +327,12 @@ func (s *Server) requestViewActivation(v *View) {
 	if v == nil || !v.Mapped {
 		return
 	}
+	// Tray icons commonly restore their application by requesting activation
+	// rather than explicitly clearing the XWayland minimized state.
+	if v.InHat {
+		s.restoreHatWindow(v)
+		return
+	}
 	if !s.viewVisible(v) {
 		s.setViewUrgent(v, true)
 		return

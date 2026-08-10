@@ -6,12 +6,14 @@
 
 extern void hatwmGoRequestMaximize(uintptr_t token, bool maximized);
 extern void hatwmGoRequestFullscreen(uintptr_t token, bool fullscreen);
+extern void hatwmGoRequestMinimize(uintptr_t token);
 extern void hatwmGoWindowMetadataChanged(uintptr_t token);
 extern void hatwmGoMaximizeListenerDestroy(uintptr_t token);
 
 struct hatwm_maximize_listener {
     struct wl_listener request_maximize;
     struct wl_listener request_fullscreen;
+    struct wl_listener request_minimize;
     struct wl_listener set_title;
     struct wl_listener set_app_id;
     struct wl_listener destroy;
@@ -34,6 +36,13 @@ static void handle_request_fullscreen(struct wl_listener *listener, void *data) 
         state->token, state->toplevel->requested.fullscreen);
 }
 
+static void handle_request_minimize(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct hatwm_maximize_listener *state =
+        wl_container_of(listener, state, request_minimize);
+    hatwmGoRequestMinimize(state->token);
+}
+
 static void handle_metadata_changed(struct wl_listener *listener, void *data) {
     (void)data;
     struct hatwm_maximize_listener *state =
@@ -54,6 +63,7 @@ static void handle_toplevel_destroy(struct wl_listener *listener, void *data) {
         wl_container_of(listener, state, destroy);
     wl_list_remove(&state->request_maximize.link);
     wl_list_remove(&state->request_fullscreen.link);
+    wl_list_remove(&state->request_minimize.link);
     wl_list_remove(&state->set_title.link);
     wl_list_remove(&state->set_app_id.link);
     wl_list_remove(&state->destroy.link);
@@ -80,6 +90,8 @@ struct hatwm_maximize_listener *hatwm_xdg_toplevel_listen_maximize(
     state->request_fullscreen.notify = handle_request_fullscreen;
     wl_signal_add(
         &toplevel->events.request_fullscreen, &state->request_fullscreen);
+    state->request_minimize.notify = handle_request_minimize;
+    wl_signal_add(&toplevel->events.request_minimize, &state->request_minimize);
     state->set_title.notify = handle_metadata_changed;
     wl_signal_add(&toplevel->events.set_title, &state->set_title);
     state->set_app_id.notify = handle_app_id_changed;
@@ -96,6 +108,7 @@ void hatwm_xdg_toplevel_unlisten_maximize(
     }
     wl_list_remove(&listener->request_maximize.link);
     wl_list_remove(&listener->request_fullscreen.link);
+    wl_list_remove(&listener->request_minimize.link);
     wl_list_remove(&listener->set_title.link);
     wl_list_remove(&listener->set_app_id.link);
     wl_list_remove(&listener->destroy.link);
@@ -118,10 +131,9 @@ void hatwm_xdg_toplevel_set_supported_capabilities(
     if (toplevel == NULL) {
         return;
     }
-    // HatWM supports maximizing (as its fullscreen tiling state) and regular
-    // fullscreen, but has no minimized-window state. Omitting MINIMIZE tells
-    // clients with CSDs not to draw a non-functional minimize button.
+    // Minimize requests are represented by stashing the toplevel in The Hat.
     wlr_xdg_toplevel_set_wm_capabilities(toplevel,
         WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE |
+        WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE |
         WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN);
 }

@@ -108,7 +108,7 @@ cursor_size = 24
 # font_name = Noto Sans 10
 # qt_style = Fusion
 # qt_platform_theme = qt6ct
-window_button_layout = appmenu:maximize,close
+window_button_layout = appmenu:minimize,maximize,close
 
 [keybindings]
 Mod4+Return = exec kitty
@@ -181,7 +181,7 @@ func defaultConfig() Config {
 		// user's existing toolkit preference untouched. Newly generated configs
 		// explicitly select "default" in that section.
 		ColorScheme:                "",
-		WindowButtonLayout:         "appmenu:maximize,close",
+		WindowButtonLayout:         "appmenu:minimize,maximize,close",
 		MoveStep:                   40,
 		VolumeStep:                 5,
 		WorkspaceCount:             9,

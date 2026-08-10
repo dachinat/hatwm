@@ -21,6 +21,7 @@ extern void hatwmGoXWaylandRequestMove(void *surface);
 extern void hatwmGoXWaylandRequestResize(void *surface, uint32_t edges);
 extern void hatwmGoXWaylandRequestFullscreen(void *surface, bool fullscreen);
 extern void hatwmGoXWaylandRequestMaximize(void *surface, bool maximized);
+extern void hatwmGoXWaylandRequestMinimize(void *surface, bool minimized);
 extern void hatwmGoXWaylandRequestActivate(void *surface);
 extern void hatwmGoXWaylandOverrideRedirect(void *surface, bool value);
 extern void hatwmGoXWaylandMetadataChanged(void *surface);
@@ -36,6 +37,7 @@ struct hatwm_xwayland_surface {
     struct wl_listener request_resize;
     struct wl_listener request_fullscreen;
     struct wl_listener request_maximize;
+    struct wl_listener request_minimize;
     struct wl_listener request_activate;
     struct wl_listener set_geometry;
     struct wl_listener set_override_redirect;
@@ -161,6 +163,16 @@ static void handle_request_maximize(
     hatwmGoXWaylandRequestMaximize(state->surface, maximized);
 }
 
+static void handle_request_minimize(
+        struct wl_listener *listener, void *data) {
+    struct hatwm_xwayland_surface *state =
+        wl_container_of(listener, state, request_minimize);
+    struct wlr_xwayland_minimize_event *event = data;
+    if (event != NULL) {
+        hatwmGoXWaylandRequestMinimize(state->surface, event->minimize);
+    }
+}
+
 static void handle_request_activate(
         struct wl_listener *listener, void *data) {
     (void)data;
@@ -221,6 +233,7 @@ static void handle_surface_destroy(struct wl_listener *listener, void *data) {
     wl_list_remove(&state->request_resize.link);
     wl_list_remove(&state->request_fullscreen.link);
     wl_list_remove(&state->request_maximize.link);
+    wl_list_remove(&state->request_minimize.link);
     wl_list_remove(&state->request_activate.link);
     wl_list_remove(&state->set_geometry.link);
     wl_list_remove(&state->set_override_redirect.link);
@@ -247,6 +260,7 @@ static void handle_new_surface(struct wl_listener *listener, void *data) {
     state->request_resize.notify = handle_request_resize;
     state->request_fullscreen.notify = handle_request_fullscreen;
     state->request_maximize.notify = handle_request_maximize;
+    state->request_minimize.notify = handle_request_minimize;
     state->request_activate.notify = handle_request_activate;
     state->set_geometry.notify = handle_set_geometry;
     state->set_override_redirect.notify = handle_set_override_redirect;
@@ -262,6 +276,7 @@ static void handle_new_surface(struct wl_listener *listener, void *data) {
     wl_signal_add(&surface->events.request_resize, &state->request_resize);
     wl_signal_add(&surface->events.request_fullscreen, &state->request_fullscreen);
     wl_signal_add(&surface->events.request_maximize, &state->request_maximize);
+    wl_signal_add(&surface->events.request_minimize, &state->request_minimize);
     wl_signal_add(&surface->events.request_activate, &state->request_activate);
     wl_signal_add(&surface->events.set_geometry, &state->set_geometry);
     wl_signal_add(
@@ -461,6 +476,13 @@ void hatwm_xwayland_surface_set_window_state(
     }
     wlr_xwayland_surface_set_maximized(surface, maximized);
     wlr_xwayland_surface_set_fullscreen(surface, fullscreen);
+}
+
+void hatwm_xwayland_surface_set_minimized(
+        struct wlr_xwayland_surface *surface, bool minimized) {
+    if (surface != NULL) {
+        wlr_xwayland_surface_set_minimized(surface, minimized);
+    }
 }
 
 void hatwm_xwayland_surface_set_rounded_clip(

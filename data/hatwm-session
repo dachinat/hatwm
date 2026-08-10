@@ -6,4 +6,10 @@ export XDG_CURRENT_DESKTOP=HatWM
 export XDG_SESSION_DESKTOP=HatWM
 export XDG_SESSION_TYPE=wayland
 
-exec "${HATWM_DIR}/hatwm"
+state_dir=${XDG_STATE_HOME:-"${HOME}/.local/state"}/hatwm
+mkdir -p "${state_dir}"
+
+# Ly truncates its per-session output file when the next login starts, which
+# used to erase the only useful evidence after a compositor crash. Keep HatWM's
+# own append-only session log so the preceding failure remains diagnosable.
+exec "${HATWM_DIR}/hatwm" >>"${state_dir}/hatwm.log" 2>&1

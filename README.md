@@ -310,7 +310,7 @@ Bindings use `modifier+key = action [argument]`. Supported modifier names are
 `Mod4`/`Super`/`Logo`, `Mod1`/`Alt`, `Shift`, and `Ctrl`/`Control`. Available
 actions are `exec`, `close`, `workspace`, `move_to_workspace`,
 `toggle_tiling`, `toggle_keyboard_layout`, `toggle_fullscreen`, `cycle_focus`,
-`hat_stash`, `hat_restore`, `hat_next`, `move_left`, `move_right`, `move_up`,
+`hat_stash`, `hat_show`, `hat_restore`, `hat_next`, `move_left`, `move_right`, `move_up`,
 `move_down`, `volume_up`, `volume_down`, `volume_mute`, and `exit`.
 
 - `Mod4` + left drag moves a floating window; in tiling mode, dragging across
@@ -341,13 +341,16 @@ The default bindings are:
 | Binding | Action |
 | --- | --- |
 | `Mod4+Shift+H` | put the focused window into The Hat |
-| `Mod4+H` | restore the first window from The Hat |
+| `Mod4+H` | open the graphical Hat picker |
+| `Mod4+Alt+H` | restore the first window directly |
 | `Mod4+Ctrl+H` | rotate the next stored window to the front |
 
-Bindings may also use `hat_restore WINDOW_ID` to restore a specific entry.
+The picker is provided by HatWM Panel and restores the selected window on click
+or Enter. Bindings and IPC clients may still use `hat_restore WINDOW_ID` to
+restore a specific entry directly.
 Panels can query `get_hat`, inspect `get_state.hat`, and subscribe to
-`hat_changed`, `window_stashed`, and `window_restored` to implement a visual
-picker without coupling that interface to the compositor.
+`hat_show_requested`, `hat_changed`, `window_stashed`, and `window_restored`.
+The show event carries the Hat entries in restore order.
 
 ## IPC and `hatwmctl`
 

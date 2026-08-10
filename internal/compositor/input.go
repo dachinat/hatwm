@@ -198,6 +198,9 @@ func (s *Server) executeAction(action, arg string) bool {
 		return s.moveFocusedToWorkspaceArg(arg)
 	case "hat_stash":
 		return s.stashFocusedInHat()
+	case "hat_show":
+		s.emitIPCEvent("hat_show_requested", s.ipcHat())
+		return true
 	case "hat_restore":
 		return s.restoreHatWindowArg(arg)
 	case "hat_next":

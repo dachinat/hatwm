@@ -102,6 +102,13 @@ func TestIPCGetHatReturnsEmptyCollection(t *testing.T) {
 	}
 }
 
+func TestShowHatActionSucceedsWhenHatIsEmpty(t *testing.T) {
+	server := &Server{}
+	if !server.executeAction("hat_show", "") {
+		t.Fatal("hat_show action failed")
+	}
+}
+
 func TestIPCRejectsIncompatibleVersionAndUnknownRequest(t *testing.T) {
 	server := &Server{}
 	version := server.handleIPCRequest(nil, IPCRequest{Type: "hello", ID: 1, ProtocolVersion: ipcProtocolVersion + 1})

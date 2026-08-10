@@ -396,6 +396,8 @@ func (s *Server) handleIPCCommand(req IPCRequest) IPCMessage {
 		handled = s.moveFocusedToWorkspaceArg(fmt.Sprint(req.Workspace))
 	case "hat_stash":
 		handled = s.stashFocusedInHat()
+	case "hat_show":
+		handled = s.executeAction("hat_show", "")
 	case "hat_restore":
 		if req.WindowID != 0 {
 			handled = s.restoreHatWindowByID(req.WindowID)

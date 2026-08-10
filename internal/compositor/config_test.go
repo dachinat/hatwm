@@ -295,7 +295,7 @@ func TestLoadConfigCreatesDefaultFile(t *testing.T) {
 	for _, binding := range cfg.KeyBindings {
 		hatActions[binding.Action] = true
 	}
-	for _, action := range []string{"hat_stash", "hat_restore", "hat_next"} {
+	for _, action := range []string{"hat_stash", "hat_show", "hat_restore", "hat_next"} {
 		if !hatActions[action] {
 			t.Errorf("default configuration is missing %s", action)
 		}

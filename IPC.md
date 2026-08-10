@@ -26,12 +26,13 @@ Request:
 {"type":"get_workspaces","id":3}
 {"type":"get_windows","id":4}
 {"type":"get_diagnostics","id":5}
+{"type":"get_hat","id":6}
 ```
 
 ## Event subscription
 
 ```json
-{"type":"subscribe","id":6,"events":["workspace_changed","workspace_updated","window_opened","window_closed","window_moved","window_output_changed","window_updated","window_urgent","focus_changed","layout_changed","fullscreen_changed","keyboard_layout_changed","wallpaper_changed","config_reloaded","shutdown"]}
+{"type":"subscribe","id":7,"events":["workspace_changed","workspace_updated","window_opened","window_closed","window_moved","window_output_changed","window_updated","window_urgent","window_stashed","window_restored","hat_changed","focus_changed","layout_changed","fullscreen_changed","keyboard_layout_changed","wallpaper_changed","config_reloaded","shutdown"]}
 ```
 
 Use `"*"` to subscribe to every event.
@@ -48,7 +49,17 @@ Use `"*"` to subscribe to every event.
 {"type":"command","id":12,"command":"close"}
 {"type":"command","id":13,"command":"reload_config"}
 {"type":"command","id":14,"command":"set_wallpaper","wallpaper":"/home/user/Pictures/wallpaper.png"}
+{"type":"command","id":15,"command":"hat_stash"}
+{"type":"command","id":16,"command":"hat_restore"}
+{"type":"command","id":17,"command":"hat_restore","window_id":12}
+{"type":"command","id":18,"command":"hat_next"}
 ```
+
+`hat_stash` removes the focused managed window from the visible layout while
+keeping its client mapped. `hat_restore` restores the first entry, or the entry
+selected by `window_id`, onto the active output and workspace. `hat_next`
+rotates the Hat's MRU order. Hat entries remain present in `get_windows` with
+`in_hat: true`, while `get_hat` and `get_state.hat` return them in restore order.
 
 `set_wallpaper` changes the running session without rewriting HatWM's config.
 HatWM validates the image before replacing the active `hatwmbg` process.
@@ -113,6 +124,7 @@ Example window returned by `get_windows`:
   "rules": "color-picker",
   "workspace": 2,
   "mapped": true,
+  "in_hat": false,
   "focused": false,
   "urgent": true,
   "dialog": false,
@@ -127,7 +139,7 @@ Example window returned by `get_windows`:
 }
 ```
 
-Workspace and window records include an additive `urgent` boolean. HatWM sets
+Workspace and window records include additive `urgent` and `in_hat` booleans. HatWM sets
 it when a mapped application requests activation from another workspace and
 clears it when that window receives focus. Urgency changes emit
 `window_urgent` and `workspace_updated`.

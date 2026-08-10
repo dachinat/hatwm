@@ -81,6 +81,25 @@ func TestIPCHandshake(t *testing.T) {
 		len(response.Capabilities) == 0 {
 		t.Fatalf("invalid handshake response: %+v", response)
 	}
+	foundHat := false
+	for _, capability := range response.Capabilities {
+		foundHat = foundHat || capability == "hat"
+	}
+	if !foundHat {
+		t.Fatalf("handshake does not advertise The Hat: %+v", response.Capabilities)
+	}
+}
+
+func TestIPCGetHatReturnsEmptyCollection(t *testing.T) {
+	server := &Server{}
+	response := server.handleIPCRequest(nil, IPCRequest{Type: "get_hat", ID: 7})
+	if response.Success == nil || !*response.Success {
+		t.Fatalf("get_hat failed: %+v", response)
+	}
+	hat, ok := response.Result.([]IPCWindow)
+	if !ok || len(hat) != 0 {
+		t.Fatalf("empty Hat response = %#v", response.Result)
+	}
 }
 
 func TestIPCRejectsIncompatibleVersionAndUnknownRequest(t *testing.T) {

@@ -226,7 +226,10 @@ func (s *Server) applyWindowRules(v *View, initial bool) {
 	}
 	s.applyRuleGeometry(v)
 	s.applyWindowOpacity(v)
-	if !v.Mapped {
+	if !v.Mapped || v.InHat {
+		if v.InHat && !v.RootTree.Nil() {
+			v.RootTree.Node().SetEnabled(false)
+		}
 		return
 	}
 	fullscreenChanged := initial || actions.Fullscreen != oldActions.Fullscreen ||
@@ -250,7 +253,7 @@ func (s *Server) applyWindowRules(v *View, initial bool) {
 func (s *Server) applyRuleFullscreenForCurrentWorkspace() {
 	output := s.currentOutputState()
 	for _, v := range s.views {
-		if v.Managed && v.Mapped && v.Output == output &&
+		if v.Managed && v.Mapped && !v.InHat && v.Output == output &&
 			v.Workspace == output.CurrentWorkspace &&
 			v.RuleActions.HasFullscreen && v.RuleActions.Fullscreen {
 			s.setViewFullscreen(v, true)

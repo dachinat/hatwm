@@ -75,6 +75,7 @@ type View struct {
 	TileHeight  int
 
 	Mapped           bool
+	InHat            bool
 	Urgent           bool
 	Dialog           bool
 	Modal            bool

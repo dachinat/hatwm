@@ -53,6 +53,7 @@ type IPCRequest struct {
 	Events          []string        `json:"events,omitempty"`
 	Command         string          `json:"command,omitempty"`
 	Workspace       int             `json:"workspace,omitempty"`
+	WindowID        uint64          `json:"window_id,omitempty"`
 	Wallpaper       string          `json:"wallpaper,omitempty"`
 	Arguments       json.RawMessage `json:"arguments,omitempty"`
 }
@@ -80,6 +81,8 @@ type IPCState struct {
 	KeyboardLayout string         `json:"keyboard_layout"`
 	Wallpaper      string         `json:"wallpaper"`
 	FocusedWindow  *IPCWindow     `json:"focused_window,omitempty"`
+	HatCount       int            `json:"hat_count"`
+	Hat            []IPCWindow    `json:"hat"`
 	Workspaces     []IPCWorkspace `json:"workspaces"`
 	Output         IPCOutput      `json:"output"`
 	Outputs        []IPCOutput    `json:"outputs"`
@@ -119,6 +122,7 @@ type IPCWindow struct {
 	Rules      string `json:"rules,omitempty"`
 	Workspace  int    `json:"workspace"`
 	Mapped     bool   `json:"mapped"`
+	InHat      bool   `json:"in_hat"`
 	Focused    bool   `json:"focused"`
 	Urgent     bool   `json:"urgent"`
 	Dialog     bool   `json:"dialog"`
@@ -319,13 +323,15 @@ func (s *Server) handleIPCRequest(client *ipcClient, req IPCRequest) IPCMessage 
 			return ipcError(req.ID, fmt.Sprintf("unsupported protocol version %d", req.ProtocolVersion))
 		}
 		ok := true
-		return IPCMessage{Type: "hello", ID: req.ID, Success: &ok, ProtocolVersion: ipcProtocolVersion, Server: "HatWM", ServerVersion: Version, Capabilities: []string{"state", "workspaces", "windows", "events", "commands", "diagnostics"}}
+		return IPCMessage{Type: "hello", ID: req.ID, Success: &ok, ProtocolVersion: ipcProtocolVersion, Server: "HatWM", ServerVersion: Version, Capabilities: []string{"state", "workspaces", "windows", "hat", "events", "commands", "diagnostics"}}
 	case "get_state":
 		return ipcSuccess(req.ID, s.ipcState())
 	case "get_workspaces":
 		return ipcSuccess(req.ID, s.ipcWorkspaces())
 	case "get_windows":
 		return ipcSuccess(req.ID, s.ipcWindows())
+	case "get_hat":
+		return ipcSuccess(req.ID, s.ipcHat())
 	case "get_diagnostics":
 		return ipcSuccess(req.ID, s.ipcDiagnostics())
 	case "subscribe":
@@ -388,6 +394,16 @@ func (s *Server) handleIPCCommand(req IPCRequest) IPCMessage {
 		handled = s.switchWorkspaceArg(fmt.Sprint(req.Workspace))
 	case "move_to_workspace":
 		handled = s.moveFocusedToWorkspaceArg(fmt.Sprint(req.Workspace))
+	case "hat_stash":
+		handled = s.stashFocusedInHat()
+	case "hat_restore":
+		if req.WindowID != 0 {
+			handled = s.restoreHatWindowByID(req.WindowID)
+		} else {
+			handled = s.restoreHatWindowArg("")
+		}
+	case "hat_next":
+		handled = s.cycleHat()
 	case "set_wallpaper":
 		if strings.TrimSpace(req.Wallpaper) == "" {
 			return ipcError(req.ID, "wallpaper path is required")
@@ -452,6 +468,8 @@ func (s *Server) ipcState() IPCState {
 		KeyboardLayout: layout,
 		Wallpaper:      s.wallpaperPath,
 		FocusedWindow:  focused,
+		HatCount:       len(s.hat),
+		Hat:            s.ipcHat(),
 		Workspaces:     s.ipcWorkspaces(),
 		Output:         s.ipcOutput(),
 		Outputs:        s.ipcOutputs(),
@@ -504,7 +522,7 @@ func (s *Server) ipcWorkspaces() []IPCWorkspace {
 		windows := 0
 		urgent := false
 		for _, view := range s.views {
-			if view.Mapped && view.Workspace == number {
+			if view.Mapped && !view.InHat && view.Workspace == number {
 				windows++
 				urgent = urgent || view.Urgent
 			}
@@ -524,6 +542,16 @@ func (s *Server) ipcWindows() []IPCWindow {
 	result := make([]IPCWindow, 0, len(s.views))
 	for _, view := range s.views {
 		if view.Mapped {
+			result = append(result, s.ipcWindow(view))
+		}
+	}
+	return result
+}
+
+func (s *Server) ipcHat() []IPCWindow {
+	result := make([]IPCWindow, 0, len(s.hat))
+	for _, view := range s.hat {
+		if view != nil && view.Mapped && view.InHat {
 			result = append(result, s.ipcWindow(view))
 		}
 	}
@@ -555,6 +583,7 @@ func (s *Server) ipcWindow(view *View) IPCWindow {
 		Rules:      view.MatchedRules,
 		Workspace:  view.Workspace,
 		Mapped:     view.Mapped,
+		InHat:      view.InHat,
 		Focused:    view == s.focusedView(),
 		Urgent:     view.Urgent,
 		Dialog:     view.Dialog,

@@ -109,7 +109,7 @@ func (s *Server) ensureViewOutput(v *View) *OutputState {
 }
 
 func (s *Server) viewVisible(v *View) bool {
-	if v == nil || !v.Mapped {
+	if v == nil || !v.Mapped || v.InHat {
 		return false
 	}
 	output := s.ensureViewOutput(v)
@@ -133,7 +133,8 @@ func (s *Server) rememberOutputFocus(output *OutputState, v *View) {
 	}
 	history := output.FocusHistory[:0]
 	for _, candidate := range output.FocusHistory {
-		if candidate != v && candidate.Mapped && candidate.Output == output {
+		if candidate != v && candidate.Mapped && !candidate.InHat &&
+			candidate.Output == output {
 			history = append(history, candidate)
 		}
 	}
@@ -168,12 +169,15 @@ func (s *Server) focusedViewForOutput(output *OutputState) *View {
 		return nil
 	}
 	for _, v := range output.FocusHistory {
-		if v.Mapped && v.Output == output && v.Workspace == output.CurrentWorkspace {
+		if v.Mapped && !v.InHat && v.Output == output &&
+			v.Workspace == output.CurrentWorkspace {
 			return v
 		}
 	}
 	for _, v := range s.views {
-		if v.Managed && v.Mapped && s.ensureViewOutput(v) == output && v.Workspace == output.CurrentWorkspace {
+		if v.Managed && v.Mapped && !v.InHat &&
+			s.ensureViewOutput(v) == output &&
+			v.Workspace == output.CurrentWorkspace {
 			return v
 		}
 	}

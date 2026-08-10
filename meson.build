@@ -84,6 +84,8 @@ hatwm_sources = files(
   'internal/compositor/decorations_test.go',
   'internal/compositor/desktop_protocols.go',
   'internal/compositor/foreign_toplevel.go',
+  'internal/compositor/hat.go',
+  'internal/compositor/hat_test.go',
   'internal/compositor/input.go',
   'internal/compositor/input_config.go',
   'internal/compositor/input_protocols.go',
@@ -245,7 +247,8 @@ run_target('nested', command: hatwm, env: nested_env)
 
 smoke_test = find_program('tests/nested_smoke.sh')
 kitty = find_program('kitty', required: false)
-if kitty.found()
+socat = find_program('socat', required: false)
+if kitty.found() and socat.found()
   run_target(
     'nested-smoke',
     command: [smoke_test, join_paths(build_root, 'hatwm'), kitty],

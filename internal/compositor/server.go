@@ -54,6 +54,7 @@ type Server struct {
 	xdgActivation *C.struct_hatwm_xdg_activation
 	xdgDialog     *C.struct_hatwm_xdg_dialog_manager
 	views         []*View
+	hat           []*View
 
 	layerShell       *C.struct_hatwm_layer_shell
 	xdgOutputManager *C.struct_wlr_xdg_output_manager_v1

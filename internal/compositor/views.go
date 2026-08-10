@@ -144,6 +144,7 @@ func (s *Server) handleNewXDGPopup(p wlroots.XDGPopup) {
 }
 
 func (s *Server) removeView(target *View) {
+	s.removeViewFromHat(target)
 	for i, v := range s.views {
 		if v == target {
 			s.views = append(s.views[:i], s.views[i+1:]...)
@@ -158,7 +159,8 @@ func (s *Server) mappedViews() []*View {
 func (s *Server) mappedViewsForOutput(output *OutputState) []*View {
 	out := make([]*View, 0, len(s.views))
 	for _, v := range s.views {
-		if v.Managed && v.Mapped && s.ensureViewOutput(v) == output &&
+		if v.Managed && v.Mapped && !v.InHat &&
+			s.ensureViewOutput(v) == output &&
 			v.Workspace == output.CurrentWorkspace {
 			out = append(out, v)
 		}
@@ -432,6 +434,7 @@ func (s *Server) unmapView(v *View) {
 	}
 	wasFocused := v.Associated &&
 		s.seat.KeyboardState().FocusedSurface() == v.clientSurface()
+	wasInHat := s.removeViewFromHat(v)
 	v.Mapped = false
 	v.Urgent = false
 	v.Animation.Running = false
@@ -456,4 +459,7 @@ func (s *Server) unmapView(v *View) {
 		}
 	}
 	s.arrange()
+	if wasInHat {
+		s.emitIPCEvent("hat_changed", s.ipcHat())
+	}
 }

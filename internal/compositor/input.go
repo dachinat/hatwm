@@ -196,6 +196,12 @@ func (s *Server) executeAction(action, arg string) bool {
 		return s.switchWorkspaceArg(arg)
 	case "move_to_workspace":
 		return s.moveFocusedToWorkspaceArg(arg)
+	case "hat_stash":
+		return s.stashFocusedInHat()
+	case "hat_restore":
+		return s.restoreHatWindowArg(arg)
+	case "hat_next":
+		return s.cycleHat()
 	case "toggle_tiling":
 		if s.config.Tiling {
 			s.config.Tiling = false

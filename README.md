@@ -310,8 +310,8 @@ Bindings use `modifier+key = action [argument]`. Supported modifier names are
 `Mod4`/`Super`/`Logo`, `Mod1`/`Alt`, `Shift`, and `Ctrl`/`Control`. Available
 actions are `exec`, `close`, `workspace`, `move_to_workspace`,
 `toggle_tiling`, `toggle_keyboard_layout`, `toggle_fullscreen`, `cycle_focus`,
-`move_left`, `move_right`, `move_up`, `move_down`, `volume_up`, `volume_down`,
-`volume_mute`, and `exit`.
+`hat_stash`, `hat_restore`, `hat_next`, `move_left`, `move_right`, `move_up`,
+`move_down`, `volume_up`, `volume_down`, `volume_mute`, and `exit`.
 
 - `Mod4` + left drag moves a floating window; in tiling mode, dragging across
   another tile swaps their layout positions.
@@ -328,6 +328,26 @@ kept fully inside the usable area.
 Dragging a window onto another monitor transfers it to that output and its
 active workspace. Every output tracks independent usable bounds, workspace,
 fullscreen window, and focus history.
+
+### The Hat
+
+The Hat is HatWM's window stash. A stashed window keeps running but is removed
+from its workspace layout. Restoring it summons the window onto the active
+workspace and output, then focuses it. Entries use most-recently-stashed order,
+without disturbing the saved tiling order of other windows.
+
+The default bindings are:
+
+| Binding | Action |
+| --- | --- |
+| `Mod4+Shift+H` | put the focused window into The Hat |
+| `Mod4+H` | restore the first window from The Hat |
+| `Mod4+Ctrl+H` | rotate the next stored window to the front |
+
+Bindings may also use `hat_restore WINDOW_ID` to restore a specific entry.
+Panels can query `get_hat`, inspect `get_state.hat`, and subscribe to
+`hat_changed`, `window_stashed`, and `window_restored` to implement a visual
+picker without coupling that interface to the compositor.
 
 ## IPC and `hatwmctl`
 

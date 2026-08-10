@@ -810,7 +810,7 @@ func (s *Server) handleViewMaximizeRequest(v *View, requested bool) {
 
 func (s *Server) setViewPresentation(
 	v *View, enabled bool, mode presentationMode) {
-	if v == nil || !v.Mapped {
+	if v == nil || !v.Mapped || v.InHat {
 		return
 	}
 	output := s.ensureViewOutput(v)

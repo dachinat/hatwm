@@ -291,6 +291,15 @@ func TestLoadConfigCreatesDefaultFile(t *testing.T) {
 	if cfg.WorkspaceCount != 9 || len(cfg.KeyBindings) == 0 {
 		t.Fatalf("unexpected default configuration: %+v", cfg)
 	}
+	hatActions := map[string]bool{}
+	for _, binding := range cfg.KeyBindings {
+		hatActions[binding.Action] = true
+	}
+	for _, action := range []string{"hat_stash", "hat_restore", "hat_next"} {
+		if !hatActions[action] {
+			t.Errorf("default configuration is missing %s", action)
+		}
+	}
 	path := filepath.Join(home, ".config", "hatwm", "config")
 	if info, err := os.Stat(path); err != nil {
 		t.Fatalf("default config was not created: %v", err)

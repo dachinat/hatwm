@@ -2,6 +2,37 @@ package compositor
 
 import "testing"
 
+func TestTransientDescendant(t *testing.T) {
+	root := &View{ID: 1}
+	child := &View{ID: 2}
+	grandchild := &View{ID: 3}
+	unrelated := &View{ID: 4}
+	parents := map[*View]*View{child: root, grandchild: child}
+	parentOf := func(v *View) *View { return parents[v] }
+
+	if !transientDescendant(child, root, parentOf) {
+		t.Fatal("direct transient was not recognized")
+	}
+	if !transientDescendant(grandchild, root, parentOf) {
+		t.Fatal("nested transient was not recognized")
+	}
+	if transientDescendant(unrelated, root, parentOf) {
+		t.Fatal("unrelated window was recognized as a transient")
+	}
+	if transientDescendant(root, root, parentOf) {
+		t.Fatal("a window must not be its own transient descendant")
+	}
+}
+
+func TestTransientDescendantHandlesParentCycle(t *testing.T) {
+	a := &View{ID: 1}
+	b := &View{ID: 2}
+	parents := map[*View]*View{a: b, b: a}
+	if transientDescendant(a, &View{ID: 3}, func(v *View) *View { return parents[v] }) {
+		t.Fatal("cyclic parent chain matched an unrelated ancestor")
+	}
+}
+
 func TestMappedViewsFiltersManagementMappingAndWorkspace(t *testing.T) {
 	visible := &View{ID: 1, Managed: true, Mapped: true, Workspace: 2}
 	server := &Server{views: []*View{

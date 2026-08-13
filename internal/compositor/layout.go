@@ -37,7 +37,8 @@ func (s *Server) arrangeViewsIn(output *OutputState, area usableBox) {
 	}
 	if output.Fullscreen != nil && output.Fullscreen.Mapped {
 		for _, v := range views {
-			v.RootTree.Node().SetEnabled(v == output.Fullscreen)
+			v.RootTree.Node().SetEnabled(v == output.Fullscreen ||
+				s.isTransientDescendant(v, output.Fullscreen))
 		}
 		fullscreenArea := s.viewArea(output.Fullscreen)
 		s.setViewPosition(output.Fullscreen,
@@ -47,6 +48,15 @@ func (s *Server) arrangeViewsIn(output *OutputState, area usableBox) {
 		output.Fullscreen.setSize(
 			uint32(fullscreenArea.width), uint32(fullscreenArea.height))
 		s.updateDecoration(output.Fullscreen)
+		// A modal/transient window remains usable above its fullscreen parent.
+		// This is important for portal file choosers opened by a maximized app.
+		for i, v := range views {
+			if !s.isTransientDescendant(v, output.Fullscreen) {
+				continue
+			}
+			s.placeFloatingView(v, i)
+			v.RootTree.Node().RaiseToTop()
+		}
 		return
 	}
 

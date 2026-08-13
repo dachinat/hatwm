@@ -259,6 +259,57 @@ func (s *Server) parentView(v *View) *View {
 	}
 	return nil
 }
+
+// handleXDGParentChanged handles both xdg_toplevel.set_parent and parent
+// relationships established through xdg-foreign. Portal backends can attach a
+// file chooser after its surface has mapped, so map-time classification alone
+// is not sufficient.
+func (s *Server) handleXDGParentChanged(v *View) {
+	if v == nil || v.IsXWayland || v.TopLevel.Nil() {
+		return
+	}
+	parent := s.parentView(v)
+	if parent != nil {
+		v.Output = parent.Output
+		v.Workspace = parent.Workspace
+		// Recenter a newly attached transient over the application that opened
+		// it instead of retaining the unrelated cascade position it mapped at.
+		v.FloatingValid = false
+	}
+	s.applyWindowRules(v, false)
+	if !v.Mapped {
+		return
+	}
+	s.arrange()
+	if parent != nil && v.ruleAllowsFocus() {
+		// Do this after arranging: arranging restores the previous focus node's
+		// stacking order, while the newly attached transient must end on top.
+		s.requestViewActivation(v)
+	}
+	s.emitIPCEvent("window_updated", s.ipcWindow(v))
+}
+
+func transientDescendant(
+	v, ancestor *View, parentOf func(*View) *View,
+) bool {
+	if v == nil || ancestor == nil || v == ancestor || parentOf == nil {
+		return false
+	}
+	seen := make(map[*View]bool)
+	for current := v; current != nil && !seen[current]; {
+		seen[current] = true
+		parent := parentOf(current)
+		if parent == ancestor {
+			return true
+		}
+		current = parent
+	}
+	return false
+}
+
+func (s *Server) isTransientDescendant(v, ancestor *View) bool {
+	return transientDescendant(v, ancestor, s.parentView)
+}
 func (s *Server) focusedView() *View {
 	if output := s.currentOutputState(); output.Focused != nil &&
 		s.viewVisible(output.Focused) {

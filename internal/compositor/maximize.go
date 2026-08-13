@@ -147,6 +147,17 @@ func hatwmGoWindowMetadataChanged(token C.uintptr_t) {
 	}
 }
 
+//export hatwmGoWindowParentChanged
+func hatwmGoWindowParentChanged(token C.uintptr_t) {
+	maximizeRegistry.RLock()
+	v := maximizeRegistry.views[uintptr(token)]
+	maximizeRegistry.RUnlock()
+	if v == nil || v.Server == nil {
+		return
+	}
+	v.Server.handleXDGParentChanged(v)
+}
+
 //export hatwmGoMaximizeListenerDestroy
 func hatwmGoMaximizeListenerDestroy(token C.uintptr_t) {
 	maximizeRegistry.Lock()

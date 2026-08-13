@@ -379,6 +379,11 @@ hatwm --check-config
 hatwm --debug
 ```
 
+At startup HatWM updates both the systemd user-manager and D-Bus activation
+environments with its Wayland/XWayland display and XDG desktop identity before
+starting portals or autostart commands. This prevents services retained across
+logout from launching against a previous compositor's display.
+
 An IPC wallpaper change affects the running session but does not rewrite the
 configuration file. See [IPC.md](IPC.md) for the protocol handshake, queries,
 commands, events, and geometry records used by panels and pagers.

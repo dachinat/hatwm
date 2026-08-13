@@ -100,6 +100,8 @@ hatwm_sources = files(
   'internal/compositor/screencast_portal.go',
   'internal/compositor/screencopy.go',
   'internal/compositor/server.go',
+  'internal/compositor/session_environment.go',
+  'internal/compositor/session_environment_test.go',
   'internal/compositor/session_lock.go',
   'internal/compositor/view_ops.go',
   'internal/compositor/views.go',

@@ -275,6 +275,10 @@ func (s *Server) Start(extraStartup string) error {
 	_ = os.Setenv("XDG_CURRENT_DESKTOP", "HatWM")
 	_ = os.Setenv("XDG_SESSION_DESKTOP", "HatWM")
 	_ = os.Setenv("XDG_SESSION_TYPE", "wayland")
+	// The systemd user manager and D-Bus broker survive compositor logout.
+	// Replace their activation environments before portals or autostarted
+	// applications can inherit values from a previous desktop session.
+	synchronizeSessionEnvironment()
 	s.applyAppearanceProfile()
 	slog.Info("HatWM started", "WAYLAND_DISPLAY", socket)
 	logXWaylandDisplay(xDisplay)

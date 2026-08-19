@@ -5,14 +5,32 @@ package compositor
 #cgo CFLAGS: -D_GNU_SOURCE -DWLR_USE_UNSTABLE
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_xdg_shell.h>
+#include "popup_listener.h"
 */
 import "C"
 
 import (
+	"sync"
 	"unsafe"
 
 	"github.com/swaywm/go-wlroots/wlroots"
 )
+
+type popupConstraintTarget struct {
+	server     *Server
+	popup      wlroots.XDGPopup
+	owner      *View
+	layerOwner *LayerSurface
+}
+
+var popupConstraintRegistry = struct {
+	sync.RWMutex
+	next    uintptr
+	targets map[uintptr]popupConstraintTarget
+}{
+	next:    1,
+	targets: make(map[uintptr]popupConstraintTarget),
+}
 
 func xdgPopupPointer(popup wlroots.XDGPopup) unsafe.Pointer {
 	return *(*unsafe.Pointer)(unsafe.Pointer(&popup))
@@ -133,4 +151,56 @@ func (s *Server) unconstrainLayerXDGPopup(popup wlroots.XDGPopup, layer *LayerSu
 	}
 	box := layerPopupConstraintBox(layer.output.Full, layer.lastX, layer.lastY)
 	unconstrainXDGPopupFromBox(popup, box)
+}
+
+func (s *Server) listenForPopupReposition(
+	popup wlroots.XDGPopup, owner *View, layerOwner *LayerSurface,
+) {
+	if owner == nil && layerOwner == nil {
+		return
+	}
+
+	popupConstraintRegistry.Lock()
+	token := popupConstraintRegistry.next
+	popupConstraintRegistry.next++
+	popupConstraintRegistry.targets[token] = popupConstraintTarget{
+		server: s, popup: popup, owner: owner, layerOwner: layerOwner,
+	}
+	popupConstraintRegistry.Unlock()
+
+	listener := C.hatwm_xdg_popup_listen(
+		(*C.struct_wlr_xdg_popup)(xdgPopupPointer(popup)), C.uintptr_t(token))
+	if listener == nil {
+		popupConstraintRegistry.Lock()
+		delete(popupConstraintRegistry.targets, token)
+		popupConstraintRegistry.Unlock()
+	}
+}
+
+func unconstrainPopupTarget(target popupConstraintTarget) {
+	if target.server == nil {
+		return
+	}
+	if target.owner != nil {
+		target.server.unconstrainXDGPopup(target.popup, target.owner)
+	} else if target.layerOwner != nil {
+		target.server.unconstrainLayerXDGPopup(target.popup, target.layerOwner)
+	}
+}
+
+//export hatwmGoPopupReposition
+func hatwmGoPopupReposition(token C.uintptr_t) {
+	popupConstraintRegistry.RLock()
+	target, ok := popupConstraintRegistry.targets[uintptr(token)]
+	popupConstraintRegistry.RUnlock()
+	if ok {
+		unconstrainPopupTarget(target)
+	}
+}
+
+//export hatwmGoPopupListenerDestroy
+func hatwmGoPopupListenerDestroy(token C.uintptr_t) {
+	popupConstraintRegistry.Lock()
+	delete(popupConstraintRegistry.targets, uintptr(token))
+	popupConstraintRegistry.Unlock()
 }

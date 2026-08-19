@@ -97,6 +97,8 @@ hatwm_sources = files(
   'internal/compositor/output_protocols.go',
   'internal/compositor/output_state.go',
   'internal/compositor/popup.go',
+  'internal/compositor/popup_listener.c',
+  'internal/compositor/popup_listener.h',
   'internal/compositor/screencast_portal.go',
   'internal/compositor/screencopy.go',
   'internal/compositor/server.go',

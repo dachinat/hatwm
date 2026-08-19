@@ -98,21 +98,22 @@ func (s *Server) handleNewXDGPopup(p wlroots.XDGPopup) {
 	parent := p.Parent()
 	owner := s.popupOwner(p)
 	layerOwner := s.popupLayerOwner(p)
-	// xdg-positioner only describes how a popup may be adjusted; the
-	// compositor must provide the actual output constraint box. Without this,
-	// nested menus near an output edge (for example Chrome's History submenu)
-	// are positioned outside the monitor instead of being flipped/slid inward.
-	if owner != nil {
-		s.unconstrainXDGPopup(p, owner)
-	} else if layerOwner != nil {
-		// Layer-shell's new_popup event covers the root menu. Descendant xdg
-		// popups are announced by xdg-shell instead, so constrain them here in
-		// the root layer surface's coordinate system.
-		s.unconstrainLayerXDGPopup(p, layerOwner)
-	}
+	s.listenForPopupReposition(p, owner, layerOwner)
 	base.OnCommit(func(surface wlroots.XDGSurface) {
 		s.notifyFractionalScale(surface.Surface())
 		if surface.InitialCommit() {
+			// The popup's final xdg-positioner state is available only at its
+			// initial commit. Constraining it from the new_popup event is too
+			// early for GTK applications and can leave a bottom-edge menu partly
+			// outside the output instead of flipping or sliding it upward.
+			if owner != nil {
+				s.unconstrainXDGPopup(p, owner)
+			} else if layerOwner != nil {
+				// Layer-shell's new_popup event covers the root menu. Descendant
+				// xdg popups are announced by xdg-shell instead, so constrain
+				// them in the root layer surface's coordinate system.
+				s.unconstrainLayerXDGPopup(p, layerOwner)
+			}
 			surface.ScheduleConfigure()
 		}
 		s.applyWindowOpacity(owner)
